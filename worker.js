@@ -604,7 +604,7 @@ try {
 
 
       this.status.lastAction =
-        `Gateway CLOSED: ${event.code}`;
+        "Gateway CLOSED: " + event.code;
 
 
       this.status.lastEvent =
