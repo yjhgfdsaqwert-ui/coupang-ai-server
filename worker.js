@@ -5,7 +5,7 @@ const DISCORD_API =
   "https://discord.com/api/v10";
 
 const GEMINI_MODEL =
-  "gemini-3.5-flash-lite";
+  "gemini-3.1-flash-lite";
 
 const INTENTS =
   (1 << 0) |
