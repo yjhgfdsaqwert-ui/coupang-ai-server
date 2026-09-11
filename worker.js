@@ -1,4 +1,3 @@
-```javascript
 const DISCORD_GATEWAY =
   "wss://gateway.discord.gg/?v=10&encoding=json";
 
@@ -1378,4 +1377,3 @@ export class DiscordBot {
     return chunks;
   }
 }
-```
