@@ -2,6 +2,9 @@ name = "coupang-ai-server"
 main = "worker.js"
 compatibility_date = "2026-09-11"
 
+[triggers]
+crons = ["*/1 * * * *"]
+
 [durable_objects]
 bindings = [
   { name = "DISCORD_BOT", class_name = "DiscordBot" }
