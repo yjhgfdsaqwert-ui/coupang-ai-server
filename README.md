@@ -1,1 +1,0 @@
-# coupang-ai-server
