@@ -1,474 +1,468 @@
 const DISCORD_GATEWAY =
-"wss://gateway.discord.gg/?v=10&encoding=json";
+  "wss://gateway.discord.gg/?v=10&encoding=json";
 
 const DISCORD_API =
-"https://discord.com/api/v10";
+  "https://discord.com/api/v10";
 
 const GEMINI_MODEL =
-"gemini-3.5-flash-lite";
+  "gemini-3.5-flash-lite";
 
 const INTENTS =
-(1 << 0) |
-(1 << 9) |
-(1 << 15);
+  (1 << 0) |
+  (1 << 9) |
+  (1 << 15);
+
 
 export default {
 
-async fetch(request, env) {
+  async fetch(request, env) {
 
-```
-const url = new URL(request.url);
+    const url = new URL(request.url);
 
-/*
- * 상태 확인
- *
- * /status를 열면 Discord 연결을 자동으로 시도한다.
- */
-if (url.pathname === "/status") {
-
-  try {
-
-    const id =
-      env.DISCORD_BOT.idFromName("main");
-
-    const stub =
-      env.DISCORD_BOT.get(id);
 
     /*
-     * Discord 연결 시도
+     * /status
+     *
+     * 상태 확인과 동시에
+     * Discord 연결을 시도한다.
      */
-    await stub.fetch(
-      "https://discord-bot/connect"
-    );
+    if (url.pathname === "/status") {
+
+      try {
+
+        const id =
+          env.DISCORD_BOT.idFromName("main");
+
+        const stub =
+          env.DISCORD_BOT.get(id);
+
+
+        /*
+         * Discord 연결 시도
+         */
+        await stub.fetch(
+          "https://discord-bot/connect"
+        );
+
+
+        /*
+         * 최신 상태 가져오기
+         */
+        const response =
+          await stub.fetch(
+            "https://discord-bot/status"
+          );
+
+
+        return response;
+
+      } catch (error) {
+
+        return new Response(
+          JSON.stringify(
+            {
+              worker: true,
+
+              error:
+                error && error.message
+                  ? error.message
+                  : String(error)
+            },
+            null,
+            2
+          ),
+          {
+            status: 500,
+
+            headers: {
+              "Content-Type":
+                "application/json"
+            }
+          }
+        );
+
+      }
+
+    }
+
 
     /*
-     * 최신 상태 가져오기
+     * 기본 페이지
      */
-    const response =
-      await stub.fetch(
-        "https://discord-bot/status"
-      );
-
-    return response;
-
-  } catch (error) {
-
     return new Response(
-      JSON.stringify(
-        {
-          worker: true,
-          error:
-            error && error.message
-              ? error.message
-              : String(error)
-        },
-        null,
-        2
-      ),
+      "Coupang AI Discord Bot Server",
       {
-        status: 500,
-        headers: {
-          "Content-Type":
-            "application/json"
-        }
+        status: 200
       }
     );
 
-  }
+  },
 
-}
 
-return new Response(
-  "Coupang AI Discord Bot Server",
-  {
-    status: 200
-  }
-);
-```
-
-},
-
-/*
-
-* Cloudflare Cron
-  */
+  /*
+   * ==========================================================
+   * Cloudflare Cron
+   * ==========================================================
+   *
+   * 매분 Discord 연결 확인
+   */
   async scheduled(
-  event,
-  env,
-  ctx
+    event,
+    env,
+    ctx
   ) {
 
-```
-try {
-```
+    try {
 
-```
-  const id =
-    env.DISCORD_BOT.idFromName("main");
+      const id =
+        env.DISCORD_BOT.idFromName("main");
 
-  const stub =
-    env.DISCORD_BOT.get(id);
+      const stub =
+        env.DISCORD_BOT.get(id);
 
-  ctx.waitUntil(
-    stub.fetch(
-      "https://discord-bot/connect"
-    )
-  );
 
-} catch (error) {
+      ctx.waitUntil(
+        stub.fetch(
+          "https://discord-bot/connect"
+        )
+      );
 
-  console.error(
-    "Cron 실행 실패:",
-    error
-  );
 
-}
-```
+    } catch (error) {
 
-}
+      console.error(
+        "Cron 실행 실패:",
+        error
+      );
+
+    }
+
+  }
 
 };
 
-/*
 
-* ==========================================================
-* Discord Durable Object
-* ==========================================================
-  */
+/*
+ * ==========================================================
+ * Discord Durable Object
+ * ==========================================================
+ */
 
 export class DiscordBot {
 
-constructor(
-state,
-env
-) {
-
-```
-this.state = state;
-this.env = env;
-
-this.socket = null;
-
-this.connected = false;
-this.identified = false;
-
-this.heartbeatTimer = null;
-this.reconnectTimer = null;
-
-this.sequence = null;
-
-this.status = {
-
-  createdAt:
-    new Date().toISOString(),
-
-  lastCron:
-    null,
-
-  lastAction:
-    "Durable Object created",
-
-  lastEvent:
-    null,
-
-  lastEventTime:
-    null,
-
-  lastError:
-    null,
-
-  gateway:
-    "not_connected",
-
-  connected:
-    false,
-
-  identified:
-    false
-
-};
-```
-
-}
-
-/*
-
-* Durable Object 요청 처리
-  */
-  async fetch(request) {
-
-```
-const url =
-```
-
-```
-  new URL(request.url);
-
-
-/*
- * Discord 연결
- */
-if (
-  url.pathname === "/connect"
-) {
-
-  this.status.lastCron =
-    new Date().toISOString();
-
-  this.status.lastAction =
-    "Connect request received";
-
-  await this.connect();
-
-  return new Response(
-    JSON.stringify(
-      this.status,
-      null,
-      2
-    ),
-    {
-      headers: {
-        "Content-Type":
-          "application/json"
-      }
-    }
-  );
-
-}
-
-
-/*
- * 상태 확인
- */
-if (
-  url.pathname === "/status"
-) {
-
-  return new Response(
-    JSON.stringify(
-      {
-        ...this.status,
-
-        connected:
-          this.connected,
-
-        identified:
-          this.identified,
-
-        socketState:
-          this.getSocketState()
-      },
-      null,
-      2
-    ),
-    {
-      headers: {
-        "Content-Type":
-          "application/json"
-      }
-    }
-  );
-
-}
-
-
-return new Response(
-  "Not Found",
-  {
-    status: 404
-  }
-);
-```
-
-}
-
-/*
-
-* WebSocket 상태 확인
-  */
-  getSocketState() {
-
-```
-if (!this.socket) {
-```
-
-```
-  return "null";
-}
-
-if (
-  this.socket.readyState ===
-  WebSocket.CONNECTING
-) {
-  return "CONNECTING";
-}
-
-if (
-  this.socket.readyState ===
-  WebSocket.OPEN
-) {
-  return "OPEN";
-}
-
-if (
-  this.socket.readyState ===
-  WebSocket.CLOSING
-) {
-  return "CLOSING";
-}
-
-if (
-  this.socket.readyState ===
-  WebSocket.CLOSED
-) {
-  return "CLOSED";
-}
-
-return "UNKNOWN";
-```
-
-}
-
-/*
-
-* ==========================================================
-* Discord Gateway 연결
-* ==========================================================
-  */
-  async connect() {
-
-```
-/*
-```
-
-```
- * 이미 연결되어 있으면 중복 연결하지 않는다.
- */
-if (this.socket) {
-
-  if (
-    this.socket.readyState ===
-      WebSocket.OPEN ||
-    this.socket.readyState ===
-      WebSocket.CONNECTING
+  constructor(
+    state,
+    env
   ) {
 
-    this.status.lastAction =
-      "Already connected or connecting";
+    this.state =
+      state;
 
-    return;
+    this.env =
+      env;
+
+
+    /*
+     * Discord WebSocket
+     */
+    this.socket =
+      null;
+
+
+    /*
+     * 연결 상태
+     */
+    this.connected =
+      false;
+
+    this.identified =
+      false;
+
+
+    /*
+     * Heartbeat
+     */
+    this.heartbeatTimer =
+      null;
+
+
+    /*
+     * 자동 재연결
+     */
+    this.reconnectTimer =
+      null;
+
+
+    /*
+     * Discord Sequence
+     */
+    this.sequence =
+      null;
+
+
+    /*
+     * 상태 정보
+     */
+    this.status = {
+
+      createdAt:
+        new Date().toISOString(),
+
+      lastCron:
+        null,
+
+      lastAction:
+        "Durable Object created",
+
+      lastEvent:
+        null,
+
+      lastEventTime:
+        null,
+
+      lastError:
+        null,
+
+      gateway:
+        "not_connected",
+
+      connected:
+        false,
+
+      identified:
+        false
+
+    };
 
   }
 
-}
-
-
-/*
- * Discord Bot Token
- */
-const token =
-  this.env.AI_coupang_discord;
-
-
-if (!token) {
-
-  const error =
-    "AI_coupang_discord 환경변수가 없습니다.";
-
-  this.status.lastError =
-    error;
-
-  this.status.lastAction =
-    "Discord token missing";
-
-  this.status.gateway =
-    "token_missing";
-
-  return;
-
-}
-
-
-this.status.lastAction =
-  "Starting Discord Gateway connection";
-
-this.status.gateway =
-  "connecting";
-
-
-try {
-
-  const socket =
-    new WebSocket(
-      DISCORD_GATEWAY
-    );
-
-  this.socket =
-    socket;
-
-  this.connected =
-    false;
-
-  this.identified =
-    false;
-
-  this.status.connected =
-    false;
-
-  this.status.identified =
-    false;
-
-  this.status.lastAction =
-    "WebSocket created";
-
 
   /*
-   * WebSocket 연결 성공
+   * ==========================================================
+   * Durable Object 요청 처리
+   * ==========================================================
    */
-  socket.addEventListener(
-    "open",
-    () => {
+  async fetch(request) {
 
-      this.connected =
-        true;
+    const url =
+      new URL(request.url);
 
-      this.status.connected =
-        true;
 
-      this.status.gateway =
-        "connected";
+    /*
+     * Discord 연결
+     */
+    if (
+      url.pathname === "/connect"
+    ) {
+
+      this.status.lastCron =
+        new Date().toISOString();
 
       this.status.lastAction =
-        "Discord WebSocket OPEN";
-
-      this.status.lastError =
-        null;
-
-    }
-  );
+        "Connect request received";
 
 
-  /*
-   * Gateway 메시지
-   */
-  socket.addEventListener(
-    "message",
-    event => {
+      await this.connect();
 
-      this.handleGatewayMessage(
-        event.data
+
+      return new Response(
+        JSON.stringify(
+          this.status,
+          null,
+          2
+        ),
+        {
+          headers: {
+            "Content-Type":
+              "application/json"
+          }
+        }
       );
 
     }
-  );
+
+
+    /*
+     * 상태 확인
+     */
+    if (
+      url.pathname === "/status"
+    ) {
+
+      return new Response(
+        JSON.stringify(
+          {
+            ...this.status,
+
+            connected:
+              this.connected,
+
+            identified:
+              this.identified,
+
+            socketState:
+              this.getSocketState()
+          },
+          null,
+          2
+        ),
+        {
+          headers: {
+            "Content-Type":
+              "application/json"
+          }
+        }
+      );
+
+    }
+
+
+    return new Response(
+      "Not Found",
+      {
+        status: 404
+      }
+    );
+
+  }
 
 
   /*
-   * 연결 종료
+   * ==========================================================
+   * WebSocket 상태
+   * ==========================================================
    */
-  socket.addEventListener(
-    "close",
-    event => {
+  getSocketState() {
+
+    if (!this.socket) {
+
+      return "null";
+
+    }
+
+
+    if (
+      this.socket.readyState ===
+      WebSocket.CONNECTING
+    ) {
+
+      return "CONNECTING";
+
+    }
+
+
+    if (
+      this.socket.readyState ===
+      WebSocket.OPEN
+    ) {
+
+      return "OPEN";
+
+    }
+
+
+    if (
+      this.socket.readyState ===
+      WebSocket.CLOSING
+    ) {
+
+      return "CLOSING";
+
+    }
+
+
+    if (
+      this.socket.readyState ===
+      WebSocket.CLOSED
+    ) {
+
+      return "CLOSED";
+
+    }
+
+
+    return "UNKNOWN";
+
+  }
+
+
+  /*
+   * ==========================================================
+   * Discord Gateway 연결
+   * ==========================================================
+   */
+  async connect() {
+
+    /*
+     * 이미 연결 중이거나 연결되어 있으면
+     * 중복 연결하지 않는다.
+     */
+    if (this.socket) {
+
+      if (
+        this.socket.readyState ===
+          WebSocket.OPEN ||
+        this.socket.readyState ===
+          WebSocket.CONNECTING
+      ) {
+
+        this.status.lastAction =
+          "Already connected or connecting";
+
+        return;
+
+      }
+
+    }
+
+
+    /*
+     * Discord Bot Token
+     */
+    const token =
+      this.env.AI_coupang_discord;
+
+
+    if (!token) {
+
+      const error =
+        "AI_coupang_discord 환경변수가 없습니다.";
+
+      this.status.lastError =
+        error;
+
+      this.status.lastAction =
+        "Discord token missing";
+
+      this.status.gateway =
+        "token_missing";
+
+      return;
+
+    }
+
+
+    this.status.lastAction =
+      "Starting Discord Gateway connection";
+
+    this.status.gateway =
+      "connecting";
+
+
+    try {
+
+      /*
+       * Discord Gateway WebSocket 생성
+       */
+      const socket =
+        new WebSocket(
+          DISCORD_GATEWAY
+        );
+
+
+      this.socket =
+        socket;
+
 
       this.connected =
         false;
@@ -476,1166 +470,1272 @@ try {
       this.identified =
         false;
 
+
       this.status.connected =
         false;
 
       this.status.identified =
         false;
 
+      this.status.lastAction =
+        "WebSocket created";
+
+
+      /*
+       * ======================================================
+       * WebSocket OPEN
+       * ======================================================
+       */
+      socket.addEventListener(
+        "open",
+        () => {
+
+          this.connected =
+            true;
+
+          this.status.connected =
+            true;
+
+          this.status.gateway =
+            "connected";
+
+          this.status.lastAction =
+            "Discord WebSocket OPEN";
+
+          this.status.lastError =
+            null;
+
+        }
+      );
+
+
+      /*
+       * ======================================================
+       * Gateway 메시지
+       * ======================================================
+       */
+      socket.addEventListener(
+        "message",
+        event => {
+
+          this.handleGatewayMessage(
+            event.data
+          );
+
+        }
+      );
+
+
+      /*
+       * ======================================================
+       * WebSocket 종료
+       * ======================================================
+       */
+      socket.addEventListener(
+        "close",
+        event => {
+
+          this.connected =
+            false;
+
+          this.identified =
+            false;
+
+
+          this.status.connected =
+            false;
+
+          this.status.identified =
+            false;
+
+
+          this.status.gateway =
+            "closed";
+
+
+          this.status.lastAction =
+            "Gateway CLOSED: " +
+            String(event.code);
+
+
+          this.status.lastEvent =
+            "CLOSE code=" +
+            String(event.code) +
+            ", reason=" +
+            String(
+              event.reason ||
+              "none"
+            );
+
+
+          this.status.lastEventTime =
+            new Date().toISOString();
+
+
+          this.clearHeartbeat();
+
+
+          this.socket =
+            null;
+
+
+          /*
+           * 자동 재연결
+           */
+          this.scheduleReconnect();
+
+        }
+      );
+
+
+      /*
+       * ======================================================
+       * WebSocket 오류
+       * ======================================================
+       */
+      socket.addEventListener(
+        "error",
+        event => {
+
+          this.status.gateway =
+            "error";
+
+          this.status.lastAction =
+            "WebSocket error";
+
+          this.status.lastError =
+            "Discord WebSocket error";
+
+        }
+      );
+
+
+      /*
+       * ======================================================
+       * 9분 후 Gateway 재연결
+       * ======================================================
+       */
+      setTimeout(
+        () => {
+
+          if (
+            this.socket === socket &&
+            socket.readyState ===
+              WebSocket.OPEN
+          ) {
+
+            this.status.lastAction =
+              "Scheduled Gateway reconnect";
+
+
+            try {
+
+              socket.close(
+                1000,
+                "Scheduled reconnect"
+              );
+
+            } catch {}
+
+          }
+
+        },
+        9 * 60 * 1000
+      );
+
+
+    } catch (error) {
+
       this.status.gateway =
-        "closed";
+        "connection_failed";
 
       this.status.lastAction =
-        "Gateway CLOSED: " +
-        event.code;
+        "Discord Gateway connection failed";
 
-      this.status.lastEvent =
-        "CLOSE code=" +
-        event.code +
-        ", reason=" +
-        (event.reason || "none");
 
-      this.status.lastEventTime =
-        new Date().toISOString();
+      this.status.lastError =
+        error &&
+        error.message
+          ? error.message
+          : String(error);
 
-      this.clearHeartbeat();
+
+      this.connected =
+        false;
 
       this.socket =
         null;
 
+
       this.scheduleReconnect();
 
     }
-  );
+
+  }
 
 
   /*
-   * WebSocket 오류
+   * ==========================================================
+   * 자동 재연결
+   * ==========================================================
    */
-  socket.addEventListener(
-    "error",
-    () => {
-
-      this.status.gateway =
-        "error";
-
-      this.status.lastAction =
-        "WebSocket error";
-
-      this.status.lastError =
-        "Discord WebSocket error";
-
-    }
-  );
-
-
-  /*
-   * 9분마다 Gateway 재연결
-   */
-  setTimeout(
-    () => {
-
-      if (
-        this.socket === socket &&
-        socket.readyState ===
-          WebSocket.OPEN
-      ) {
-
-        this.status.lastAction =
-          "Scheduled Gateway reconnect";
-
-        try {
-
-          socket.close(
-            1000,
-            "Scheduled reconnect"
-          );
-
-        } catch {}
-
-      }
-
-    },
-    9 * 60 * 1000
-  );
-
-
-} catch (error) {
-
-  this.status.gateway =
-    "connection_failed";
-
-  this.status.lastAction =
-    "Discord Gateway connection failed";
-
-  this.status.lastError =
-    error && error.message
-      ? error.message
-      : String(error);
-
-  this.connected =
-    false;
-
-  this.socket =
-    null;
-
-  this.scheduleReconnect();
-
-}
-```
-
-}
-
-/*
-
-* ==========================================================
-* 자동 재연결
-* ==========================================================
-  */
   scheduleReconnect() {
 
-```
-if (
-```
+    if (
+      this.reconnectTimer
+    ) {
 
-```
-  this.reconnectTimer
-) {
-  return;
-}
+      return;
 
-this.status.lastAction =
-  "Reconnect scheduled";
+    }
 
 
-this.reconnectTimer =
-  setTimeout(
-    async () => {
+    this.status.lastAction =
+      "Reconnect scheduled";
 
-      this.reconnectTimer =
-        null;
 
-      await this.connect();
+    this.reconnectTimer =
+      setTimeout(
+        async () => {
 
-    },
-    5000
-  );
-```
+          this.reconnectTimer =
+            null;
 
-}
+          await this.connect();
 
-/*
-
-* ==========================================================
-* Discord Gateway 메시지 처리
-* ==========================================================
-  */
-  handleGatewayMessage(
-  rawData
-  ) {
-
-```
-let payload;
-```
-
-```
-try {
-
-  if (
-    typeof rawData ===
-    "string"
-  ) {
-
-    payload =
-      JSON.parse(
-        rawData
-      );
-
-  } else {
-
-    payload =
-      JSON.parse(
-        new TextDecoder().decode(
-          rawData
-        )
+        },
+        5000
       );
 
   }
 
-} catch (error) {
 
-  this.status.lastError =
-    "Gateway JSON 파싱 실패: " +
-    error.message;
+  /*
+   * ==========================================================
+   * Discord Gateway 메시지 처리
+   * ==========================================================
+   */
+  handleGatewayMessage(
+    rawData
+  ) {
 
-  return;
-
-}
-
-
-const op =
-  payload.op;
-
-const d =
-  payload.d;
-
-const s =
-  payload.s;
-
-const t =
-  payload.t;
+    let payload;
 
 
-/*
- * Sequence 저장
- */
-if (
-  s !== null &&
-  s !== undefined
-) {
+    try {
 
-  this.sequence =
-    s;
+      if (
+        typeof rawData ===
+        "string"
+      ) {
 
-}
+        payload =
+          JSON.parse(
+            rawData
+          );
 
+      } else {
 
-this.status.lastEvent =
-  "op=" +
-  op +
-  ", t=" +
-  (t || "NONE");
+        payload =
+          JSON.parse(
+            new TextDecoder().decode(
+              rawData
+            )
+          );
 
-this.status.lastEventTime =
-  new Date().toISOString();
+      }
 
+    } catch (error) {
 
-/*
- * HELLO
- */
-if (
-  op === 10
-) {
+      this.status.lastError =
+        "Gateway JSON 파싱 실패: " +
+        String(
+          error.message ||
+          error
+        );
 
-  this.status.lastAction =
-    "Discord Gateway HELLO received";
+      return;
 
-
-  const heartbeatInterval =
-    d &&
-    d.heartbeat_interval
-      ? d.heartbeat_interval
-      : 41250;
+    }
 
 
-  this.startHeartbeat(
-    heartbeatInterval
-  );
+    const op =
+      payload.op;
+
+    const d =
+      payload.d;
+
+    const s =
+      payload.s;
+
+    const t =
+      payload.t;
 
 
-  this.identify();
+    /*
+     * Sequence 저장
+     */
+    if (
+      s !== null &&
+      s !== undefined
+    ) {
 
-  return;
+      this.sequence =
+        s;
 
-}
-
-
-/*
- * Heartbeat ACK
- */
-if (
-  op === 11
-) {
-
-  this.status.lastAction =
-    "Heartbeat ACK received";
-
-  return;
-
-}
+    }
 
 
-/*
- * Discord가 재연결 요청
- */
-if (
-  op === 7
-) {
-
-  this.status.lastAction =
-    "Discord requested reconnect";
-
-  this.closeAndReconnect();
-
-  return;
-
-}
+    this.status.lastEvent =
+      "op=" +
+      String(op) +
+      ", t=" +
+      String(
+        t ||
+        "NONE"
+      );
 
 
-/*
- * Invalid Session
- */
-if (
-  op === 9
-) {
-
-  this.status.lastAction =
-    "Discord Invalid Session";
-
-  this.identified =
-    false;
-
-  this.status.identified =
-    false;
+    this.status.lastEventTime =
+      new Date().toISOString();
 
 
-  setTimeout(
-    () => {
+    /*
+     * ======================================================
+     * HELLO
+     * ======================================================
+     */
+    if (
+      op === 10
+    ) {
+
+      this.status.lastAction =
+        "Discord Gateway HELLO received";
+
+
+      const heartbeatInterval =
+        d &&
+        d.heartbeat_interval
+          ? d.heartbeat_interval
+          : 41250;
+
+
+      this.startHeartbeat(
+        heartbeatInterval
+      );
+
 
       this.identify();
 
-    },
-    3000
-  );
 
-  return;
-
-}
-
-
-/*
- * Dispatch
- */
-if (
-  op === 0
-) {
-
-  /*
-   * READY
-   */
-  if (
-    t === "READY"
-  ) {
-
-    this.identified =
-      true;
-
-    this.status.identified =
-      true;
-
-    this.status.gateway =
-      "ready";
-
-    this.status.lastAction =
-      "Discord bot READY";
-
-    this.status.lastError =
-      null;
-
-    return;
-
-  }
-
-
-  /*
-   * 메시지 수신
-   */
-  if (
-    t === "MESSAGE_CREATE"
-  ) {
-
-    this.status.lastAction =
-      "Discord MESSAGE_CREATE received";
-
-    this.handleMessageCreate(
-      d
-    );
-
-    return;
-
-  }
-
-}
-```
-
-}
-
-/*
-
-* ==========================================================
-* Heartbeat 시작
-* ==========================================================
-  */
-  startHeartbeat(
-  interval
-  ) {
-
-```
-this.clearHeartbeat();
-```
-
-```
-this.status.lastAction =
-  "Heartbeat started: " +
-  interval +
-  "ms";
-
-
-this.sendHeartbeat();
-
-
-this.heartbeatTimer =
-  setInterval(
-    () => {
-
-      this.sendHeartbeat();
-
-    },
-    interval
-  );
-```
-
-}
-
-/*
-
-* Heartbeat 정리
-  */
-  clearHeartbeat() {
-
-```
-if (
-```
-
-```
-  this.heartbeatTimer
-) {
-
-  clearInterval(
-    this.heartbeatTimer
-  );
-
-  this.heartbeatTimer =
-    null;
-
-}
-```
-
-}
-
-/*
-
-* Heartbeat 전송
-  */
-  sendHeartbeat() {
-
-```
-if (
-```
-
-```
-  !this.socket ||
-  this.socket.readyState !==
-    WebSocket.OPEN
-) {
-
-  return;
-
-}
-
-
-try {
-
-  this.socket.send(
-    JSON.stringify(
-      {
-        op: 1,
-        d: this.sequence
-      }
-    )
-  );
-
-  this.status.lastAction =
-    "Heartbeat sent";
-
-} catch (error) {
-
-  this.status.lastError =
-    "Heartbeat 전송 실패: " +
-    error.message;
-
-}
-```
-
-}
-
-/*
-
-* ==========================================================
-* Discord Identify
-* ==========================================================
-  */
-  identify() {
-
-```
-if (
-```
-
-```
-  !this.socket ||
-  this.socket.readyState !==
-    WebSocket.OPEN
-) {
-
-  return;
-
-}
-
-
-const token =
-  this.env.AI_coupang_discord;
-
-
-if (!token) {
-
-  this.status.lastError =
-    "AI_coupang_discord 환경변수가 없습니다.";
-
-  return;
-
-}
-
-
-try {
-
-  this.socket.send(
-    JSON.stringify(
-      {
-        op: 2,
-
-        d: {
-
-          token:
-
-            token,
-
-          intents:
-            INTENTS,
-
-          properties: {
-
-            os:
-              "linux",
-
-            browser:
-              "cloudflare-worker",
-
-            device:
-              "cloudflare-worker"
-
-          }
-
-        }
-
-      }
-    )
-  );
-
-
-  this.status.lastAction =
-    "Discord Identify sent";
-
-} catch (error) {
-
-  this.status.lastError =
-    "Identify 전송 실패: " +
-    error.message;
-
-}
-```
-
-}
-
-/*
-
-* ==========================================================
-* Discord 재연결
-* ==========================================================
-  */
-  closeAndReconnect() {
-
-```
-this.clearHeartbeat();
-```
-
-```
-if (
-  this.socket
-) {
-
-  try {
-
-    this.socket.close(
-      1000,
-      "Discord requested reconnect"
-    );
-
-  } catch {}
-
-}
-
-
-this.socket =
-  null;
-
-this.connected =
-  false;
-
-this.identified =
-  false;
-
-this.status.connected =
-  false;
-
-this.status.identified =
-  false;
-
-this.status.gateway =
-  "reconnecting";
-
-
-this.scheduleReconnect();
-```
-
-}
-
-/*
-
-* ==========================================================
-* Discord 메시지 처리
-* ==========================================================
-  */
-  async handleMessageCreate(
-  message
-  ) {
-
-```
-if (!message) {
-```
-
-```
-  return;
-}
-
-
-/*
- * 봇 메시지 무시
- */
-if (
-  message.author &&
-  message.author.bot
-) {
-
-  return;
-
-}
-
-
-const devChannel =
-  this.env.AI_coupang_discord_dev_channel;
-
-const userChannel =
-  this.env.AI_coupang_discord_user_channel;
-
-
-const channelId =
-  String(
-    message.channel_id
-  );
-
-
-/*
- * 허용된 채널만 처리
- */
-if (
-  channelId !==
-    String(devChannel) &&
-  channelId !==
-    String(userChannel)
-) {
-
-  this.status.lastAction =
-    "Ignored channel: " +
-    channelId;
-
-  return;
-
-}
-
-
-const content =
-  message.content
-    ? message.content.trim()
-    : "";
-
-
-if (!content) {
-  return;
-}
-
-
-this.status.lastAction =
-  "Processing Discord message";
-
-
-try {
-
-  /*
-   * Gemini 요청
-   */
-  const answer =
-    await this.askGemini(
-      content
-    );
-
-
-  if (!answer) {
-
-    throw new Error(
-      "Gemini 응답이 비어 있습니다."
-    );
-
-  }
-
-
-  /*
-   * Discord 응답
-   */
-  await this.sendDiscordMessage(
-    channelId,
-    answer
-  );
-
-
-  this.status.lastAction =
-    "AI response sent to Discord";
-
-
-} catch (error) {
-
-  this.status.lastError =
-    "AI 처리 실패: " +
-    error.message;
-
-
-  try {
-
-    await this.sendDiscordMessage(
-      channelId,
-      "AI 처리 중 오류가 발생했습니다.\n" +
-      "`" +
-      error.message +
-      "`"
-    );
-
-  } catch (sendError) {
-
-    this.status.lastError =
-      "Discord 오류 메시지 전송 실패: " +
-      sendError.message;
-
-  }
-
-}
-```
-
-}
-
-/*
-
-* ==========================================================
-* Gemini API
-* ==========================================================
-  */
-  async askGemini(
-  userMessage
-  ) {
-
-```
-const apiKey =
-```
-
-```
-  this.env.AI_coupang_api;
-
-
-if (!apiKey) {
-
-  throw new Error(
-    "AI_coupang_api 환경변수가 없습니다."
-  );
-
-}
-
-
-const endpoint =
-  "https://generativelanguage.googleapis.com/v1beta/models/" +
-  GEMINI_MODEL +
-  ":generateContent";
-
-
-const response =
-  await fetch(
-    endpoint,
-    {
-
-      method:
-        "POST",
-
-      headers: {
-
-        "Content-Type":
-          "application/json",
-
-        "x-goog-api-key":
-          apiKey
-
-      },
-
-      body:
-        JSON.stringify(
-          {
-
-            contents: [
-
-              {
-
-                role:
-                  "user",
-
-                parts: [
-
-                  {
-
-                    text:
-                      userMessage
-
-                  }
-
-                ]
-
-              }
-
-            ],
-
-            generationConfig: {
-
-              temperature:
-                0.7,
-
-              topP:
-                0.9,
-
-              maxOutputTokens:
-                2048
-
-            }
-
-          }
-        )
+      return;
 
     }
-  );
 
 
-const text =
-  await response.text();
+    /*
+     * ======================================================
+     * Heartbeat ACK
+     * ======================================================
+     */
+    if (
+      op === 11
+    ) {
+
+      this.status.lastAction =
+        "Heartbeat ACK received";
 
 
-if (
-  !response.ok
-) {
+      return;
 
-  throw new Error(
-    "Gemini API " +
-    response.status +
-    ": " +
-    text
-  );
-
-}
+    }
 
 
-let data;
+    /*
+     * ======================================================
+     * Discord Reconnect
+     * ======================================================
+     */
+    if (
+      op === 7
+    ) {
+
+      this.status.lastAction =
+        "Discord requested reconnect";
 
 
-try {
-
-  data =
-    JSON.parse(
-      text
-    );
-
-} catch {
-
-  throw new Error(
-    "Gemini 응답 JSON 파싱 실패"
-  );
-
-}
+      this.closeAndReconnect();
 
 
-const candidates =
-  data.candidates;
+      return;
+
+    }
 
 
-if (
-  !candidates ||
-  !candidates[0] ||
-  !candidates[0].content ||
-  !candidates[0].content.parts
-) {
+    /*
+     * ======================================================
+     * Invalid Session
+     * ======================================================
+     */
+    if (
+      op === 9
+    ) {
 
-  throw new Error(
-    "Gemini가 답변을 반환하지 않았습니다."
-  );
-
-}
-
-
-let answer = "";
+      this.status.lastAction =
+        "Discord Invalid Session";
 
 
-for (
-  const part of
-  candidates[0].content.parts
-) {
+      this.identified =
+        false;
 
-  if (
-    part &&
-    part.text
-  ) {
-
-    answer +=
-      part.text;
-
-  }
-
-}
+      this.status.identified =
+        false;
 
 
-answer =
-  answer.trim();
+      setTimeout(
+        () => {
 
-
-if (!answer) {
-
-  throw new Error(
-    "Gemini가 답변을 반환하지 않았습니다."
-  );
-
-}
-
-
-return answer;
-```
-
-}
-
-/*
-
-* ==========================================================
-* Discord 메시지 전송
-* ==========================================================
-  */
-  async sendDiscordMessage(
-  channelId,
-  content
-  ) {
-
-```
-const token =
-```
-
-```
-  this.env.AI_coupang_discord;
-
-
-if (!token) {
-
-  throw new Error(
-    "AI_coupang_discord 환경변수가 없습니다."
-  );
-
-}
-
-
-const chunks =
-  this.splitMessage(
-    content,
-    1900
-  );
-
-
-for (
-  const chunk of chunks
-) {
-
-  const response =
-    await fetch(
-      DISCORD_API +
-      "/channels/" +
-      channelId +
-      "/messages",
-      {
-
-        method:
-          "POST",
-
-        headers: {
-
-          "Authorization":
-            "Bot " +
-            token,
-
-          "Content-Type":
-            "application/json"
+          this.identify();
 
         },
+        3000
+      );
 
-        body:
-          JSON.stringify(
-            {
-              content:
-                chunk
-            }
-          )
+
+      return;
+
+    }
+
+
+    /*
+     * ======================================================
+     * Dispatch
+     * ======================================================
+     */
+    if (
+      op === 0
+    ) {
+
+      /*
+       * READY
+       */
+      if (
+        t === "READY"
+      ) {
+
+        this.identified =
+          true;
+
+        this.status.identified =
+          true;
+
+        this.status.gateway =
+          "ready";
+
+        this.status.lastAction =
+          "Discord bot READY";
+
+        this.status.lastError =
+          null;
+
+
+        return;
 
       }
-    );
 
 
-  if (
-    !response.ok
-  ) {
+      /*
+       * MESSAGE_CREATE
+       */
+      if (
+        t === "MESSAGE_CREATE"
+      ) {
 
-    const errorText =
-      await response.text();
+        this.status.lastAction =
+          "Discord MESSAGE_CREATE received";
 
 
-    throw new Error(
-      "Discord API " +
-      response.status +
-      ": " +
-      errorText
-    );
+        this.handleMessageCreate(
+          d
+        );
+
+
+        return;
+
+      }
+
+    }
 
   }
 
-}
-```
 
-}
-
-/*
-
-* ==========================================================
-* 긴 메시지 분할
-* ==========================================================
-  */
-  splitMessage(
-  text,
-  maxLength
+  /*
+   * ==========================================================
+   * Heartbeat 시작
+   * ==========================================================
+   */
+  startHeartbeat(
+    interval
   ) {
 
-```
-if (
-```
-
-```
-  text.length <=
-  maxLength
-) {
-
-  return [
-    text
-  ];
-
-}
+    this.clearHeartbeat();
 
 
-const chunks =
-  [];
-
-let remaining =
-  text;
-
-
-while (
-  remaining.length >
-  maxLength
-) {
-
-  let cut =
-    remaining.lastIndexOf(
-      "\n",
-      maxLength
-    );
+    this.status.lastAction =
+      "Heartbeat started: " +
+      String(interval) +
+      "ms";
 
 
-  if (
-    cut < 500
-  ) {
+    this.sendHeartbeat();
 
-    cut =
-      remaining.lastIndexOf(
-        " ",
-        maxLength
+
+    this.heartbeatTimer =
+      setInterval(
+        () => {
+
+          this.sendHeartbeat();
+
+        },
+        interval
       );
 
   }
 
 
-  if (
-    cut < 1
-  ) {
+  /*
+   * Heartbeat 정리
+   */
+  clearHeartbeat() {
 
-    cut =
-      maxLength;
+    if (
+      this.heartbeatTimer
+    ) {
+
+      clearInterval(
+        this.heartbeatTimer
+      );
+
+      this.heartbeatTimer =
+        null;
+
+    }
 
   }
 
 
-  chunks.push(
-    remaining.slice(
-      0,
-      cut
-    )
-  );
+  /*
+   * Heartbeat 전송
+   */
+  sendHeartbeat() {
+
+    if (
+      !this.socket ||
+      this.socket.readyState !==
+        WebSocket.OPEN
+    ) {
+
+      return;
+
+    }
 
 
-  remaining =
-    remaining
-      .slice(cut)
-      .trimStart();
+    try {
 
-}
-
-
-if (
-  remaining.length > 0
-) {
-
-  chunks.push(
-    remaining
-  );
-
-}
+      this.socket.send(
+        JSON.stringify(
+          {
+            op: 1,
+            d: this.sequence
+          }
+        )
+      );
 
 
-return chunks;
-```
+      this.status.lastAction =
+        "Heartbeat sent";
 
-}
+
+    } catch (error) {
+
+      this.status.lastError =
+        "Heartbeat 전송 실패: " +
+        String(
+          error.message ||
+          error
+        );
+
+    }
+
+  }
+
+
+  /*
+   * ==========================================================
+   * Discord Identify
+   * ==========================================================
+   */
+  identify() {
+
+    if (
+      !this.socket ||
+      this.socket.readyState !==
+        WebSocket.OPEN
+    ) {
+
+      return;
+
+    }
+
+
+    const token =
+      this.env.AI_coupang_discord;
+
+
+    if (!token) {
+
+      this.status.lastError =
+        "AI_coupang_discord 환경변수가 없습니다.";
+
+      return;
+
+    }
+
+
+    try {
+
+      this.socket.send(
+        JSON.stringify(
+          {
+            op: 2,
+
+            d: {
+
+              token:
+                token,
+
+              intents:
+                INTENTS,
+
+              properties: {
+
+                os:
+                  "linux",
+
+                browser:
+                  "cloudflare-worker",
+
+                device:
+                  "cloudflare-worker"
+
+              }
+
+            }
+
+          }
+        )
+      );
+
+
+      this.status.lastAction =
+        "Discord Identify sent";
+
+
+    } catch (error) {
+
+      this.status.lastError =
+        "Identify 전송 실패: " +
+        String(
+          error.message ||
+          error
+        );
+
+    }
+
+  }
+
+
+  /*
+   * ==========================================================
+   * Discord 재연결
+   * ==========================================================
+   */
+  closeAndReconnect() {
+
+    this.clearHeartbeat();
+
+
+    if (
+      this.socket
+    ) {
+
+      try {
+
+        this.socket.close(
+          1000,
+          "Discord requested reconnect"
+        );
+
+      } catch {}
+
+    }
+
+
+    this.socket =
+      null;
+
+    this.connected =
+      false;
+
+    this.identified =
+      false;
+
+
+    this.status.connected =
+      false;
+
+    this.status.identified =
+      false;
+
+    this.status.gateway =
+      "reconnecting";
+
+
+    this.scheduleReconnect();
+
+  }
+
+
+  /*
+   * ==========================================================
+   * Discord 메시지 처리
+   * ==========================================================
+   */
+  async handleMessageCreate(
+    message
+  ) {
+
+    if (!message) {
+
+      return;
+
+    }
+
+
+    /*
+     * 봇 자신의 메시지는 무시
+     */
+    if (
+      message.author &&
+      message.author.bot
+    ) {
+
+      return;
+
+    }
+
+
+    const devChannel =
+      this.env.AI_coupang_discord_dev_channel;
+
+    const userChannel =
+      this.env.AI_coupang_discord_user_channel;
+
+
+    const channelId =
+      String(
+        message.channel_id
+      );
+
+
+    /*
+     * 지정된 채널만 처리
+     */
+    if (
+      channelId !==
+        String(devChannel) &&
+      channelId !==
+        String(userChannel)
+    ) {
+
+      this.status.lastAction =
+        "Ignored channel: " +
+        channelId;
+
+      return;
+
+    }
+
+
+    const content =
+      message.content
+        ? message.content.trim()
+        : "";
+
+
+    if (!content) {
+
+      return;
+
+    }
+
+
+    this.status.lastAction =
+      "Processing Discord message";
+
+
+    try {
+
+      /*
+       * Gemini 요청
+       */
+      const answer =
+        await this.askGemini(
+          content
+        );
+
+
+      if (!answer) {
+
+        throw new Error(
+          "Gemini 응답이 비어 있습니다."
+        );
+
+      }
+
+
+      /*
+       * Discord 응답
+       */
+      await this.sendDiscordMessage(
+        channelId,
+        answer
+      );
+
+
+      this.status.lastAction =
+        "AI response sent to Discord";
+
+
+    } catch (error) {
+
+      const errorMessage =
+        error &&
+        error.message
+          ? String(error.message)
+          : String(error);
+
+
+      this.status.lastError =
+        "AI 처리 실패: " +
+        errorMessage;
+
+
+      try {
+
+        await this.sendDiscordMessage(
+          channelId,
+          "AI 처리 중 오류가 발생했습니다.\n" +
+          "오류: " +
+          errorMessage
+        );
+
+
+      } catch (sendError) {
+
+        const sendErrorMessage =
+          sendError &&
+          sendError.message
+            ? String(sendError.message)
+            : String(sendError);
+
+
+        this.status.lastError =
+          "Discord 오류 메시지 전송 실패: " +
+          sendErrorMessage;
+
+      }
+
+    }
+
+  }
+
+
+  /*
+   * ==========================================================
+   * Gemini API
+   * ==========================================================
+   */
+  async askGemini(
+    userMessage
+  ) {
+
+    const apiKey =
+      this.env.AI_coupang_api;
+
+
+    if (!apiKey) {
+
+      throw new Error(
+        "AI_coupang_api 환경변수가 없습니다."
+      );
+
+    }
+
+
+    const endpoint =
+      "https://generativelanguage.googleapis.com/v1beta/models/" +
+      GEMINI_MODEL +
+      ":generateContent";
+
+
+    const response =
+      await fetch(
+        endpoint,
+        {
+
+          method:
+            "POST",
+
+          headers: {
+
+            "Content-Type":
+              "application/json",
+
+            "x-goog-api-key":
+              apiKey
+
+          },
+
+          body:
+            JSON.stringify(
+              {
+
+                contents: [
+
+                  {
+
+                    role:
+                      "user",
+
+                    parts: [
+
+                      {
+
+                        text:
+                          userMessage
+
+                      }
+
+                    ]
+
+                  }
+
+                ],
+
+
+                generationConfig: {
+
+                  temperature:
+                    0.7,
+
+                  topP:
+                    0.9,
+
+                  maxOutputTokens:
+                    2048
+
+                }
+
+              }
+            )
+
+        }
+      );
+
+
+    const text =
+      await response.text();
+
+
+    if (
+      !response.ok
+    ) {
+
+      throw new Error(
+        "Gemini API " +
+        String(response.status) +
+        ": " +
+        text
+      );
+
+    }
+
+
+    let data;
+
+
+    try {
+
+      data =
+        JSON.parse(
+          text
+        );
+
+    } catch {
+
+      throw new Error(
+        "Gemini 응답 JSON 파싱 실패"
+      );
+
+    }
+
+
+    const candidates =
+      data.candidates;
+
+
+    if (
+      !candidates ||
+      !candidates[0] ||
+      !candidates[0].content ||
+      !candidates[0].content.parts
+    ) {
+
+      throw new Error(
+        "Gemini가 답변을 반환하지 않았습니다."
+      );
+
+    }
+
+
+    let answer =
+      "";
+
+
+    for (
+      const part of
+      candidates[0].content.parts
+    ) {
+
+      if (
+        part &&
+        part.text
+      ) {
+
+        answer +=
+          part.text;
+
+      }
+
+    }
+
+
+    answer =
+      answer.trim();
+
+
+    if (!answer) {
+
+      throw new Error(
+        "Gemini가 답변을 반환하지 않았습니다."
+      );
+
+    }
+
+
+    return answer;
+
+  }
+
+
+  /*
+   * ==========================================================
+   * Discord 메시지 전송
+   * ==========================================================
+   */
+  async sendDiscordMessage(
+    channelId,
+    content
+  ) {
+
+    const token =
+      this.env.AI_coupang_discord;
+
+
+    if (!token) {
+
+      throw new Error(
+        "AI_coupang_discord 환경변수가 없습니다."
+      );
+
+    }
+
+
+    /*
+     * Discord 메시지는 최대 2000자
+     */
+    const chunks =
+      this.splitMessage(
+        content,
+        1900
+      );
+
+
+    for (
+      const chunk of chunks
+    ) {
+
+      const response =
+        await fetch(
+          DISCORD_API +
+          "/channels/" +
+          channelId +
+          "/messages",
+          {
+
+            method:
+              "POST",
+
+            headers: {
+
+              "Authorization":
+                "Bot " +
+                token,
+
+              "Content-Type":
+                "application/json"
+
+            },
+
+            body:
+              JSON.stringify(
+                {
+                  content:
+                    chunk
+                }
+              )
+
+          }
+        );
+
+
+      if (
+        !response.ok
+      ) {
+
+        const errorText =
+          await response.text();
+
+
+        throw new Error(
+          "Discord API " +
+          String(response.status) +
+          ": " +
+          errorText
+        );
+
+      }
+
+    }
+
+  }
+
+
+  /*
+   * ==========================================================
+   * 긴 메시지 분할
+   * ==========================================================
+   */
+  splitMessage(
+    text,
+    maxLength
+  ) {
+
+    if (
+      text.length <=
+      maxLength
+    ) {
+
+      return [
+        text
+      ];
+
+    }
+
+
+    const chunks =
+      [];
+
+
+    let remaining =
+      text;
+
+
+    while (
+      remaining.length >
+      maxLength
+    ) {
+
+      let cut =
+        remaining.lastIndexOf(
+          "\n",
+          maxLength
+        );
+
+
+      if (
+        cut < 500
+      ) {
+
+        cut =
+          remaining.lastIndexOf(
+            " ",
+            maxLength
+          );
+
+      }
+
+
+      if (
+        cut < 1
+      ) {
+
+        cut =
+          maxLength;
+
+      }
+
+
+      chunks.push(
+        remaining.slice(
+          0,
+          cut
+        )
+      );
+
+
+      remaining =
+        remaining
+          .slice(cut)
+          .trimStart();
+
+    }
+
+
+    if (
+      remaining.length > 0
+    ) {
+
+      chunks.push(
+        remaining
+      );
+
+    }
+
+
+    return chunks;
+
+  }
 
 }
