@@ -1,3 +1,4 @@
+```javascript
 const DISCORD_GATEWAY =
   "wss://gateway.discord.gg/?v=10&encoding=json";
 
@@ -14,10 +15,14 @@ const INTENTS =
 
 
 export default {
+
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // 상태 확인만 제공
+    // ========================================
+    // 상태 확인
+    // ========================================
+
     if (url.pathname === "/status") {
       try {
         const id =
@@ -26,19 +31,35 @@ export default {
         const stub =
           env.DISCORD_BOT.get(id);
 
-        return await stub.fetch(
-          "https://discord-bot/status"
-        );
+        const response =
+          await stub.fetch(
+            "https://discord-bot/status"
+          );
+
+        return response;
 
       } catch (error) {
+
         return new Response(
-          `Status error: ${error.message}`,
+          JSON.stringify({
+            worker: true,
+            error: error.message
+          }, null, 2),
           {
-            status: 500
+            status: 500,
+            headers: {
+              "Content-Type":
+                "application/json"
+            }
           }
         );
       }
     }
+
+
+    // ========================================
+    // 기본 응답
+    // ========================================
 
     return new Response(
       "Coupang AI Discord Bot Server",
@@ -51,16 +72,19 @@ export default {
 
   // ========================================
   // Cron Trigger
-  // 매분 Discord Gateway 연결 확인
+  // 매분 자동 실행
   // ========================================
 
   async scheduled(event, env, ctx) {
+
     try {
+
       const id =
         env.DISCORD_BOT.idFromName("main");
 
       const stub =
         env.DISCORD_BOT.get(id);
+
 
       ctx.waitUntil(
         stub.fetch(
@@ -69,8 +93,9 @@ export default {
       );
 
     } catch (error) {
+
       console.error(
-        "Discord Bot 자동 시작 실패:",
+        "Cron 실행 실패:",
         error
       );
     }
@@ -81,6 +106,7 @@ export default {
 export class DiscordBot {
 
   constructor(state, env) {
+
     this.state = state;
     this.env = env;
 
@@ -93,44 +119,103 @@ export class DiscordBot {
     this.reconnectTimer = null;
 
     this.sequence = null;
+
+    // 상태 정보
+    this.status = {
+      createdAt:
+        new Date().toISOString(),
+
+      lastCron:
+        null,
+
+      lastAction:
+        "Durable Object created",
+
+      lastEvent:
+        null,
+
+      lastEventTime:
+        null,
+
+      lastError:
+        null,
+
+      gateway:
+        "not_connected",
+
+      connected:
+        false,
+
+      identified:
+        false
+    };
   }
 
 
+  // ========================================
+  // 요청 처리
+  // ========================================
+
   async fetch(request) {
+
     const url =
       new URL(request.url);
 
 
-    // ========================================
-    // 자동 연결
-    // ========================================
+    // ======================================
+    // 자동 연결 요청
+    // ======================================
 
-    if (url.pathname === "/connect") {
+    if (
+      url.pathname === "/connect"
+    ) {
+
+      this.status.lastCron =
+        new Date().toISOString();
+
+      this.status.lastAction =
+        "Cron called /connect";
 
       await this.connect();
 
+
       return new Response(
-        this.connected
-          ? "Discord Gateway connected."
-          : "Discord Gateway connection started."
+        JSON.stringify(
+          this.status,
+          null,
+          2
+        ),
+        {
+          headers: {
+            "Content-Type":
+              "application/json"
+          }
+        }
       );
     }
 
 
-    // ========================================
+    // ======================================
     // 상태 확인
-    // ========================================
+    // ======================================
 
-    if (url.pathname === "/status") {
+    if (
+      url.pathname === "/status"
+    ) {
 
       return new Response(
         JSON.stringify(
           {
+            ...this.status,
+
             connected:
               this.connected,
 
             identified:
-              this.identified
+              this.identified,
+
+            socketState:
+              this.getSocketState()
           },
           null,
           2
@@ -155,11 +240,54 @@ export class DiscordBot {
 
 
   // ========================================
+  // WebSocket 상태
+  // ========================================
+
+  getSocketState() {
+
+    if (!this.socket) {
+      return "null";
+    }
+
+    if (
+      this.socket.readyState ===
+      WebSocket.CONNECTING
+    ) {
+      return "CONNECTING";
+    }
+
+    if (
+      this.socket.readyState ===
+      WebSocket.OPEN
+    ) {
+      return "OPEN";
+    }
+
+    if (
+      this.socket.readyState ===
+      WebSocket.CLOSING
+    ) {
+      return "CLOSING";
+    }
+
+    if (
+      this.socket.readyState ===
+      WebSocket.CLOSED
+    ) {
+      return "CLOSED";
+    }
+
+    return "UNKNOWN";
+  }
+
+
+  // ========================================
   // Discord Gateway 연결
   // ========================================
 
   async connect() {
 
+    // 이미 연결되어 있으면 아무것도 하지 않음
     if (this.socket) {
 
       if (
@@ -169,6 +297,10 @@ export class DiscordBot {
         this.socket.readyState ===
           WebSocket.CONNECTING
       ) {
+
+        this.status.lastAction =
+          "Already connected or connecting";
+
         return;
       }
     }
@@ -180,17 +312,27 @@ export class DiscordBot {
 
     if (!token) {
 
-      console.error(
-        "AI_coupang_discord 환경변수가 없습니다."
-      );
+      const error =
+        "AI_coupang_discord 환경변수가 없습니다.";
+
+      this.status.lastError =
+        error;
+
+      this.status.lastAction =
+        "Discord token missing";
+
+      this.status.gateway =
+        "token_missing";
 
       return;
     }
 
 
-    console.log(
-      "Discord Gateway 연결 시작"
-    );
+    this.status.lastAction =
+      "Starting Discord Gateway connection";
+
+    this.status.gateway =
+      "connecting";
 
 
     try {
@@ -211,26 +353,45 @@ export class DiscordBot {
         false;
 
 
+      this.status.connected =
+        false;
+
+      this.status.identified =
+        false;
+
+
+      this.status.lastAction =
+        "WebSocket created";
+
+
       // ====================================
-      // WebSocket OPEN
+      // OPEN
       // ====================================
 
       socket.addEventListener(
         "open",
         () => {
 
-          console.log(
-            "Discord Gateway WebSocket OPEN"
-          );
-
           this.connected =
             true;
+
+          this.status.connected =
+            true;
+
+          this.status.gateway =
+            "connected";
+
+          this.status.lastAction =
+            "Discord WebSocket OPEN";
+
+          this.status.lastError =
+            null;
         }
       );
 
 
       // ====================================
-      // Discord 메시지
+      // MESSAGE
       // ====================================
 
       socket.addEventListener(
@@ -245,17 +406,12 @@ export class DiscordBot {
 
 
       // ====================================
-      // 연결 종료
+      // CLOSE
       // ====================================
 
       socket.addEventListener(
         "close",
         event => {
-
-          console.log(
-            `Discord Gateway CLOSED: ${event.code} ${event.reason || ""}`
-          );
-
 
           this.connected =
             false;
@@ -263,13 +419,22 @@ export class DiscordBot {
           this.identified =
             false;
 
+          this.status.connected =
+            false;
+
+          this.status.identified =
+            false;
+
+          this.status.gateway =
+            "closed";
+
+          this.status.lastAction =
+            `Gateway CLOSED: ${event.code}`;
 
           this.clearHeartbeat();
 
-
           this.socket =
             null;
-
 
           this.scheduleReconnect();
         }
@@ -277,23 +442,27 @@ export class DiscordBot {
 
 
       // ====================================
-      // 오류
+      // ERROR
       // ====================================
 
       socket.addEventListener(
         "error",
         error => {
 
-          console.error(
-            "Discord Gateway ERROR:",
-            error
-          );
+          this.status.gateway =
+            "error";
+
+          this.status.lastAction =
+            "WebSocket error";
+
+          this.status.lastError =
+            "Discord WebSocket error";
         }
       );
 
 
       // ====================================
-      // 9분마다 안전하게 재연결
+      // 9분 후 안전 재연결
       // ====================================
 
       setTimeout(
@@ -305,9 +474,8 @@ export class DiscordBot {
               WebSocket.OPEN
           ) {
 
-            console.log(
-              "9분 경과 - Discord Gateway 재연결"
-            );
+            this.status.lastAction =
+              "9 minute scheduled reconnect";
 
 
             try {
@@ -327,18 +495,20 @@ export class DiscordBot {
 
     } catch (error) {
 
-      console.error(
-        "Discord Gateway 연결 실패:",
-        error
-      );
+      this.status.gateway =
+        "connection_failed";
 
+      this.status.lastAction =
+        "Discord Gateway connection failed";
+
+      this.status.lastError =
+        error.message;
 
       this.connected =
         false;
 
       this.socket =
         null;
-
 
       this.scheduleReconnect();
     }
@@ -356,6 +526,10 @@ export class DiscordBot {
     ) {
       return;
     }
+
+
+    this.status.lastAction =
+      "Reconnect scheduled";
 
 
     this.reconnectTimer =
@@ -397,10 +571,8 @@ export class DiscordBot {
 
     } catch (error) {
 
-      console.error(
-        "Gateway JSON 파싱 실패:",
-        error
-      );
+      this.status.lastError =
+        `Gateway JSON 파싱 실패: ${error.message}`;
 
       return;
     }
@@ -414,26 +586,35 @@ export class DiscordBot {
     } = payload;
 
 
-    // Discord sequence 저장
+    // Sequence 저장
     if (
       s !== null &&
       s !== undefined
     ) {
+
       this.sequence =
         s;
     }
 
 
-    console.log(
-      `Discord Gateway 이벤트: op=${op}, t=${t || "NONE"}`
-    );
+    this.status.lastEvent =
+      `op=${op}, t=${t || "NONE"}`;
+
+    this.status.lastEventTime =
+      new Date().toISOString();
 
 
     // ========================================
     // OP 10 - Hello
     // ========================================
 
-    if (op === 10) {
+    if (
+      op === 10
+    ) {
+
+      this.status.lastAction =
+        "Discord Gateway HELLO received";
+
 
       const heartbeatInterval =
         d?.heartbeat_interval ||
@@ -456,11 +637,12 @@ export class DiscordBot {
     // OP 11 - Heartbeat ACK
     // ========================================
 
-    if (op === 11) {
+    if (
+      op === 11
+    ) {
 
-      console.log(
-        "Discord Heartbeat ACK"
-      );
+      this.status.lastAction =
+        "Heartbeat ACK received";
 
       return;
     }
@@ -470,11 +652,12 @@ export class DiscordBot {
     // OP 7 - Reconnect
     // ========================================
 
-    if (op === 7) {
+    if (
+      op === 7
+    ) {
 
-      console.log(
-        "Discord가 재연결을 요청했습니다."
-      );
+      this.status.lastAction =
+        "Discord requested reconnect";
 
 
       this.closeAndReconnect();
@@ -488,14 +671,18 @@ export class DiscordBot {
     // OP 9 - Invalid Session
     // ========================================
 
-    if (op === 9) {
+    if (
+      op === 9
+    ) {
 
-      console.log(
-        "Discord Invalid Session"
-      );
+      this.status.lastAction =
+        "Discord Invalid Session";
 
 
       this.identified =
+        false;
+
+      this.status.identified =
         false;
 
 
@@ -514,10 +701,12 @@ export class DiscordBot {
 
 
     // ========================================
-    // Dispatch Event
+    // OP 0 - Dispatch
     // ========================================
 
-    if (op === 0) {
+    if (
+      op === 0
+    ) {
 
       // ======================================
       // READY
@@ -527,28 +716,20 @@ export class DiscordBot {
         t === "READY"
       ) {
 
-        console.log(
-          "================================"
-        );
-
-        console.log(
-          "Discord 봇 로그인 성공"
-        );
-
-        console.log(
-          `봇 사용자: ${
-            d?.user?.username ||
-            "Unknown"
-          }`
-        );
-
-        console.log(
-          "================================"
-        );
-
-
         this.identified =
           true;
+
+        this.status.identified =
+          true;
+
+        this.status.gateway =
+          "ready";
+
+        this.status.lastAction =
+          "Discord bot READY";
+
+        this.status.lastError =
+          null;
 
 
         return;
@@ -562,6 +743,10 @@ export class DiscordBot {
       if (
         t === "MESSAGE_CREATE"
       ) {
+
+        this.status.lastAction =
+          "Discord MESSAGE_CREATE received";
+
 
         this.handleMessageCreate(
           d
@@ -583,6 +768,10 @@ export class DiscordBot {
   ) {
 
     this.clearHeartbeat();
+
+
+    this.status.lastAction =
+      `Heartbeat started: ${interval}ms`;
 
 
     // 첫 Heartbeat
@@ -615,7 +804,6 @@ export class DiscordBot {
         this.heartbeatTimer
       );
 
-
       this.heartbeatTimer =
         null;
     }
@@ -639,27 +827,25 @@ export class DiscordBot {
 
     try {
 
+      // Discord Gateway Heartbeat
+      // d에는 마지막 sequence 또는 null
       this.socket.send(
         JSON.stringify(
           {
             op: 1,
-
             d: this.sequence
           }
         )
       );
 
 
-      console.log(
-        "Discord Heartbeat 전송"
-      );
+      this.status.lastAction =
+        "Heartbeat sent";
 
     } catch (error) {
 
-      console.error(
-        "Heartbeat 전송 실패:",
-        error
-      );
+      this.status.lastError =
+        `Heartbeat 전송 실패: ${error.message}`;
     }
   }
 
@@ -685,9 +871,8 @@ export class DiscordBot {
 
     if (!token) {
 
-      console.error(
-        "AI_coupang_discord 환경변수가 없습니다."
-      );
+      this.status.lastError =
+        "AI_coupang_discord 환경변수가 없습니다.";
 
       return;
     }
@@ -709,7 +894,8 @@ export class DiscordBot {
 
               properties: {
 
-                os: "linux",
+                os:
+                  "linux",
 
                 browser:
                   "cloudflare-worker",
@@ -723,23 +909,19 @@ export class DiscordBot {
       );
 
 
-      console.log(
-        "Discord Identify 전송"
-      );
-
+      this.status.lastAction =
+        "Discord Identify sent";
 
     } catch (error) {
 
-      console.error(
-        "Identify 전송 실패:",
-        error
-      );
+      this.status.lastError =
+        `Identify 전송 실패: ${error.message}`;
     }
   }
 
 
   // ========================================
-  // 연결 종료 후 재연결
+  // 재연결
   // ========================================
 
   closeAndReconnect() {
@@ -772,6 +954,16 @@ export class DiscordBot {
       false;
 
 
+    this.status.connected =
+      false;
+
+    this.status.identified =
+      false;
+
+    this.status.gateway =
+      "reconnecting";
+
+
     this.scheduleReconnect();
   }
 
@@ -789,10 +981,7 @@ export class DiscordBot {
     }
 
 
-    // ======================================
     // 봇 메시지 무시
-    // ======================================
-
     if (
       message.author?.bot
     ) {
@@ -800,13 +989,8 @@ export class DiscordBot {
     }
 
 
-    // ======================================
-    // 허용 채널 확인
-    // ======================================
-
     const devChannel =
       this.env.AI_coupang_discord_dev_channel;
-
 
     const userChannel =
       this.env.AI_coupang_discord_user_channel;
@@ -818,6 +1002,7 @@ export class DiscordBot {
       );
 
 
+    // 허용된 채널만 처리
     if (
       channelId !==
         String(devChannel) &&
@@ -826,9 +1011,8 @@ export class DiscordBot {
         String(userChannel)
     ) {
 
-      console.log(
-        `허용되지 않은 채널 메시지 무시: ${channelId}`
-      );
+      this.status.lastAction =
+        `Ignored channel: ${channelId}`;
 
       return;
     }
@@ -843,14 +1027,9 @@ export class DiscordBot {
     }
 
 
-    console.log(
-      `Discord 메시지 수신: ${content}`
-    );
+    this.status.lastAction =
+      "Processing Discord message";
 
-
-    // ======================================
-    // Gemini 호출
-    // ======================================
 
     try {
 
@@ -862,17 +1041,11 @@ export class DiscordBot {
 
       if (!answer) {
 
-        console.error(
+        throw new Error(
           "Gemini 응답이 비어 있습니다."
         );
-
-        return;
       }
 
-
-      // ====================================
-      // Discord 답장
-      // ====================================
 
       await this.sendDiscordMessage(
         channelId,
@@ -880,12 +1053,14 @@ export class DiscordBot {
       );
 
 
+      this.status.lastAction =
+        "AI response sent to Discord";
+
+
     } catch (error) {
 
-      console.error(
-        "AI 처리 실패:",
-        error
-      );
+      this.status.lastError =
+        `AI 처리 실패: ${error.message}`;
 
 
       try {
@@ -898,17 +1073,15 @@ export class DiscordBot {
 
       } catch (sendError) {
 
-        console.error(
-          "오류 메시지 전송 실패:",
-          sendError
-        );
+        this.status.lastError =
+          `Discord 오류 메시지 전송 실패: ${sendError.message}`;
       }
     }
   }
 
 
   // ========================================
-  // Gemini API
+  // Gemini
   // ========================================
 
   async askGemini(
@@ -931,11 +1104,6 @@ export class DiscordBot {
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 
-    console.log(
-      "Gemini API 요청 시작"
-    );
-
-
     const response =
       await fetch(
         endpoint,
@@ -954,12 +1122,11 @@ export class DiscordBot {
           body:
             JSON.stringify(
               {
-
                 contents: [
 
                   {
-
-                    role: "user",
+                    role:
+                      "user",
 
                     parts: [
 
@@ -997,12 +1164,6 @@ export class DiscordBot {
     if (
       !response.ok
     ) {
-
-      console.error(
-        `Gemini API 오류 ${response.status}:`,
-        text
-      );
-
 
       throw new Error(
         `Gemini API ${response.status}: ${text}`
@@ -1042,21 +1203,10 @@ export class DiscordBot {
 
     if (!answer) {
 
-      console.error(
-        "Gemini 응답:",
-        JSON.stringify(data)
-      );
-
-
       throw new Error(
         "Gemini가 답변을 반환하지 않았습니다."
       );
     }
-
-
-    console.log(
-      "Gemini API 응답 성공"
-    );
 
 
     return answer;
@@ -1084,7 +1234,6 @@ export class DiscordBot {
     }
 
 
-    // Discord 최대 메시지 길이보다 작게 분할
     const chunks =
       this.splitMessage(
         content,
@@ -1101,7 +1250,8 @@ export class DiscordBot {
           `${DISCORD_API}/channels/${channelId}/messages`,
           {
 
-            method: "POST",
+            method:
+              "POST",
 
             headers: {
 
@@ -1131,27 +1281,16 @@ export class DiscordBot {
           await response.text();
 
 
-        console.error(
-          `Discord 메시지 전송 실패 ${response.status}:`,
-          errorText
-        );
-
-
         throw new Error(
           `Discord API ${response.status}: ${errorText}`
         );
       }
-
-
-      console.log(
-        "Discord 메시지 전송 성공"
-      );
     }
   }
 
 
   // ========================================
-  // 긴 메시지 분할
+  // 메시지 분할
   // ========================================
 
   splitMessage(
@@ -1172,7 +1311,6 @@ export class DiscordBot {
 
     const chunks =
       [];
-
 
     let remaining =
       text;
@@ -1240,3 +1378,4 @@ export class DiscordBot {
     return chunks;
   }
 }
+```
