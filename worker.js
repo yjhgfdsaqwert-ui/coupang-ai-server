@@ -8,103 +8,81 @@ const GEMINI_MODEL =
 "gemini-3.5-flash-lite";
 
 const INTENTS =
-(1 << 0) |   // GUILDS
-(1 << 9) |   // GUILD_MESSAGES
-(1 << 15);   // MESSAGE_CONTENT
+(1 << 0) |
+(1 << 9) |
+(1 << 15);
 
 export default {
 
 async fetch(request, env) {
 
 ```
-const url =
-  new URL(request.url);
-
+const url = new URL(request.url);
 
 /*
  * 상태 확인
  *
- * /status에 접속하면
- * 연결이 안 되어 있을 경우 자동으로
- * Discord 연결을 시도한다.
+ * /status를 열면 Discord 연결을 자동으로 시도한다.
  */
-if (
-  url.pathname === "/status"
-) {
+if (url.pathname === "/status") {
 
   try {
 
     const id =
-      env.DISCORD_BOT.idFromName(
-        "main"
-      );
+      env.DISCORD_BOT.idFromName("main");
 
     const stub =
       env.DISCORD_BOT.get(id);
 
-
     /*
-     * 상태 확인 전에 자동 연결 요청
+     * Discord 연결 시도
      */
     await stub.fetch(
       "https://discord-bot/connect"
     );
 
-
     /*
-     * 연결 요청 후 최신 상태 가져오기
+     * 최신 상태 가져오기
      */
     const response =
       await stub.fetch(
         "https://discord-bot/status"
       );
 
-
     return response;
 
   } catch (error) {
 
     return new Response(
-
       JSON.stringify(
         {
           worker: true,
-
           error:
-            error?.message ||
-            String(error)
+            error && error.message
+              ? error.message
+              : String(error)
         },
         null,
         2
       ),
-
       {
         status: 500,
-
         headers: {
           "Content-Type":
             "application/json"
         }
       }
-
     );
 
   }
 
 }
 
-
-/*
- * 기본 페이지
- */
 return new Response(
-
   "Coupang AI Discord Bot Server",
-
   {
     status: 200
   }
-
 );
 ```
 
@@ -113,8 +91,6 @@ return new Response(
 /*
 
 * Cloudflare Cron
-*
-* 매분 Discord 연결 상태 확인
   */
   async scheduled(
   event,
@@ -128,24 +104,15 @@ try {
 
 ```
   const id =
-    env.DISCORD_BOT.idFromName(
-      "main"
-    );
+    env.DISCORD_BOT.idFromName("main");
 
   const stub =
     env.DISCORD_BOT.get(id);
 
-
-  /*
-   * Cron 실행 기록을 남기면서
-   * Discord 연결을 확인한다.
-   */
   ctx.waitUntil(
-
     stub.fetch(
       "https://discord-bot/connect"
     )
-
   );
 
 } catch (error) {
@@ -164,9 +131,9 @@ try {
 
 /*
 
-* ============================================================
+* ==========================================================
 * Discord Durable Object
-* ============================================================
+* ==========================================================
   */
 
 export class DiscordBot {
@@ -177,54 +144,19 @@ env
 ) {
 
 ```
-this.state =
-  state;
+this.state = state;
+this.env = env;
 
-this.env =
-  env;
+this.socket = null;
 
+this.connected = false;
+this.identified = false;
 
-/*
- * Discord WebSocket
- */
-this.socket =
-  null;
+this.heartbeatTimer = null;
+this.reconnectTimer = null;
 
+this.sequence = null;
 
-/*
- * 연결 상태
- */
-this.connected =
-  false;
-
-this.identified =
-  false;
-
-
-/*
- * Heartbeat
- */
-this.heartbeatTimer =
-  null;
-
-
-/*
- * 재연결
- */
-this.reconnectTimer =
-  null;
-
-
-/*
- * Discord sequence
- */
-this.sequence =
-  null;
-
-
-/*
- * 상태 정보
- */
 this.status = {
 
   createdAt:
@@ -263,9 +195,7 @@ this.status = {
 
 * Durable Object 요청 처리
   */
-  async fetch(
-  request
-  ) {
+  async fetch(request) {
 
 ```
 const url =
@@ -279,8 +209,7 @@ const url =
  * Discord 연결
  */
 if (
-  url.pathname ===
-  "/connect"
+  url.pathname === "/connect"
 ) {
 
   this.status.lastCron =
@@ -289,25 +218,20 @@ if (
   this.status.lastAction =
     "Connect request received";
 
-
   await this.connect();
 
-
   return new Response(
-
     JSON.stringify(
       this.status,
       null,
       2
     ),
-
     {
       headers: {
         "Content-Type":
           "application/json"
       }
     }
-
   );
 
 }
@@ -317,14 +241,11 @@ if (
  * 상태 확인
  */
 if (
-  url.pathname ===
-  "/status"
+  url.pathname === "/status"
 ) {
 
   return new Response(
-
     JSON.stringify(
-
       {
         ...this.status,
 
@@ -336,21 +257,16 @@ if (
 
         socketState:
           this.getSocketState()
-
       },
-
       null,
       2
-
     ),
-
     {
       headers: {
         "Content-Type":
           "application/json"
       }
     }
-
   );
 
 }
@@ -368,62 +284,45 @@ return new Response(
 
 /*
 
-* WebSocket 상태
+* WebSocket 상태 확인
   */
   getSocketState() {
 
 ```
-if (
+if (!this.socket) {
 ```
 
 ```
-  !this.socket
-) {
-
   return "null";
-
 }
-
 
 if (
   this.socket.readyState ===
   WebSocket.CONNECTING
 ) {
-
   return "CONNECTING";
-
 }
-
 
 if (
   this.socket.readyState ===
   WebSocket.OPEN
 ) {
-
   return "OPEN";
-
 }
-
 
 if (
   this.socket.readyState ===
   WebSocket.CLOSING
 ) {
-
   return "CLOSING";
-
 }
-
 
 if (
   this.socket.readyState ===
   WebSocket.CLOSED
 ) {
-
   return "CLOSED";
-
 }
-
 
 return "UNKNOWN";
 ```
@@ -443,20 +342,15 @@ return "UNKNOWN";
 ```
 
 ```
- * 이미 연결되어 있으면 아무것도 하지 않는다.
+ * 이미 연결되어 있으면 중복 연결하지 않는다.
  */
-if (
-  this.socket
-) {
+if (this.socket) {
 
   if (
-
     this.socket.readyState ===
-    WebSocket.OPEN ||
-
+      WebSocket.OPEN ||
     this.socket.readyState ===
-    WebSocket.CONNECTING
-
+      WebSocket.CONNECTING
   ) {
 
     this.status.lastAction =
@@ -476,9 +370,7 @@ const token =
   this.env.AI_coupang_discord;
 
 
-if (
-  !token
-) {
+if (!token) {
 
   const error =
     "AI_coupang_discord 환경변수가 없습니다.";
@@ -506,18 +398,13 @@ this.status.gateway =
 
 try {
 
-  /*
-   * Discord Gateway WebSocket
-   */
   const socket =
     new WebSocket(
       DISCORD_GATEWAY
     );
 
-
   this.socket =
     socket;
-
 
   this.connected =
     false;
@@ -525,20 +412,18 @@ try {
   this.identified =
     false;
 
-
   this.status.connected =
     false;
 
   this.status.identified =
     false;
 
-
   this.status.lastAction =
     "WebSocket created";
 
 
   /*
-   * WebSocket OPEN
+   * WebSocket 연결 성공
    */
   socket.addEventListener(
     "open",
@@ -591,40 +476,33 @@ try {
       this.identified =
         false;
 
-
       this.status.connected =
         false;
 
       this.status.identified =
         false;
 
-
       this.status.gateway =
         "closed";
 
-
       this.status.lastAction =
-        "Gateway CLOSED: " + event.code;
-
+        "Gateway CLOSED: " +
+        event.code;
 
       this.status.lastEvent =
-        `CLOSE code=${event.code}, reason=${event.reason || "none"}`;
-
+        "CLOSE code=" +
+        event.code +
+        ", reason=" +
+        (event.reason || "none");
 
       this.status.lastEventTime =
         new Date().toISOString();
 
-
       this.clearHeartbeat();
-
 
       this.socket =
         null;
 
-
-      /*
-       * 자동 재연결
-       */
       this.scheduleReconnect();
 
     }
@@ -652,25 +530,19 @@ try {
 
 
   /*
-   * Discord Gateway 연결은
-   * 일정 시간 후 재연결한다.
+   * 9분마다 Gateway 재연결
    */
   setTimeout(
-
     () => {
 
       if (
-
         this.socket === socket &&
-
         socket.readyState ===
-        WebSocket.OPEN
-
+          WebSocket.OPEN
       ) {
 
         this.status.lastAction =
           "Scheduled Gateway reconnect";
-
 
         try {
 
@@ -684,15 +556,11 @@ try {
       }
 
     },
-
     9 * 60 * 1000
-
   );
 
 
-} catch (
-  error
-) {
+} catch (error) {
 
   this.status.gateway =
     "connection_failed";
@@ -701,16 +569,15 @@ try {
     "Discord Gateway connection failed";
 
   this.status.lastError =
-    error?.message ||
-    String(error);
-
+    error && error.message
+      ? error.message
+      : String(error);
 
   this.connected =
     false;
 
   this.socket =
     null;
-
 
   this.scheduleReconnect();
 
@@ -734,11 +601,8 @@ if (
 ```
   this.reconnectTimer
 ) {
-
   return;
-
 }
-
 
 this.status.lastAction =
   "Reconnect scheduled";
@@ -746,7 +610,6 @@ this.status.lastAction =
 
 this.reconnectTimer =
   setTimeout(
-
     async () => {
 
       this.reconnectTimer =
@@ -755,9 +618,7 @@ this.reconnectTimer =
       await this.connect();
 
     },
-
     5000
-
   );
 ```
 
@@ -766,7 +627,7 @@ this.reconnectTimer =
 /*
 
 * ==========================================================
-* Discord Gateway 메시지
+* Discord Gateway 메시지 처리
 * ==========================================================
   */
   handleGatewayMessage(
@@ -780,39 +641,49 @@ let payload;
 ```
 try {
 
-  payload =
+  if (
     typeof rawData ===
     "string"
+  ) {
 
-      ? JSON.parse(
+    payload =
+      JSON.parse(
+        rawData
+      );
+
+  } else {
+
+    payload =
+      JSON.parse(
+        new TextDecoder().decode(
           rawData
         )
+      );
 
-      : JSON.parse(
-          new TextDecoder().decode(
-            rawData
-          )
-        );
+  }
 
-} catch (
-  error
-) {
+} catch (error) {
 
   this.status.lastError =
-    `Gateway JSON 파싱 실패: ${error.message}`;
+    "Gateway JSON 파싱 실패: " +
+    error.message;
 
   return;
 
 }
 
 
-const {
-  op,
-  d,
-  s,
-  t
-} =
-  payload;
+const op =
+  payload.op;
+
+const d =
+  payload.d;
+
+const s =
+  payload.s;
+
+const t =
+  payload.t;
 
 
 /*
@@ -830,7 +701,10 @@ if (
 
 
 this.status.lastEvent =
-  `op=${op}, t=${t || "NONE"}`;
+  "op=" +
+  op +
+  ", t=" +
+  (t || "NONE");
 
 this.status.lastEventTime =
   new Date().toISOString();
@@ -848,8 +722,10 @@ if (
 
 
   const heartbeatInterval =
-    d?.heartbeat_interval ||
-    41250;
+    d &&
+    d.heartbeat_interval
+      ? d.heartbeat_interval
+      : 41250;
 
 
   this.startHeartbeat(
@@ -858,7 +734,6 @@ if (
 
 
   this.identify();
-
 
   return;
 
@@ -881,7 +756,7 @@ if (
 
 
 /*
- * Reconnect
+ * Discord가 재연결 요청
  */
 if (
   op === 7
@@ -890,9 +765,7 @@ if (
   this.status.lastAction =
     "Discord requested reconnect";
 
-
   this.closeAndReconnect();
-
 
   return;
 
@@ -909,7 +782,6 @@ if (
   this.status.lastAction =
     "Discord Invalid Session";
 
-
   this.identified =
     false;
 
@@ -918,17 +790,13 @@ if (
 
 
   setTimeout(
-
     () => {
 
       this.identify();
 
     },
-
     3000
-
   );
-
 
   return;
 
@@ -941,7 +809,6 @@ if (
 if (
   op === 0
 ) {
-
 
   /*
    * READY
@@ -965,28 +832,24 @@ if (
     this.status.lastError =
       null;
 
-
     return;
 
   }
 
 
   /*
-   * 메시지
+   * 메시지 수신
    */
   if (
-    t ===
-    "MESSAGE_CREATE"
+    t === "MESSAGE_CREATE"
   ) {
 
     this.status.lastAction =
       "Discord MESSAGE_CREATE received";
 
-
     this.handleMessageCreate(
       d
     );
-
 
     return;
 
@@ -1000,7 +863,7 @@ if (
 /*
 
 * ==========================================================
-* Heartbeat
+* Heartbeat 시작
 * ==========================================================
   */
   startHeartbeat(
@@ -1013,7 +876,9 @@ this.clearHeartbeat();
 
 ```
 this.status.lastAction =
-  `Heartbeat started: ${interval}ms`;
+  "Heartbeat started: " +
+  interval +
+  "ms";
 
 
 this.sendHeartbeat();
@@ -1021,24 +886,28 @@ this.sendHeartbeat();
 
 this.heartbeatTimer =
   setInterval(
-
     () => {
 
       this.sendHeartbeat();
 
     },
-
     interval
-
   );
 ```
 
 }
 
-clearHeartbeat() {
+/*
+
+* Heartbeat 정리
+  */
+  clearHeartbeat() {
 
 ```
 if (
+```
+
+```
   this.heartbeatTimer
 ) {
 
@@ -1054,16 +923,20 @@ if (
 
 }
 
-sendHeartbeat() {
+/*
+
+* Heartbeat 전송
+  */
+  sendHeartbeat() {
 
 ```
 if (
+```
 
+```
   !this.socket ||
-
   this.socket.readyState !==
-  WebSocket.OPEN
-
+    WebSocket.OPEN
 ) {
 
   return;
@@ -1074,27 +947,22 @@ if (
 try {
 
   this.socket.send(
-
     JSON.stringify(
       {
         op: 1,
         d: this.sequence
       }
     )
-
   );
-
 
   this.status.lastAction =
     "Heartbeat sent";
 
-
-} catch (
-  error
-) {
+} catch (error) {
 
   this.status.lastError =
-    `Heartbeat 전송 실패: ${error.message}`;
+    "Heartbeat 전송 실패: " +
+    error.message;
 
 }
 ```
@@ -1115,10 +983,8 @@ if (
 
 ```
   !this.socket ||
-
   this.socket.readyState !==
-  WebSocket.OPEN
-
+    WebSocket.OPEN
 ) {
 
   return;
@@ -1130,9 +996,7 @@ const token =
   this.env.AI_coupang_discord;
 
 
-if (
-  !token
-) {
+if (!token) {
 
   this.status.lastError =
     "AI_coupang_discord 환경변수가 없습니다.";
@@ -1145,15 +1009,15 @@ if (
 try {
 
   this.socket.send(
-
     JSON.stringify(
       {
-
         op: 2,
 
         d: {
 
-          token,
+          token:
+
+            token,
 
           intents:
             INTENTS,
@@ -1175,20 +1039,17 @@ try {
 
       }
     )
-
   );
 
 
   this.status.lastAction =
     "Discord Identify sent";
 
-
-} catch (
-  error
-) {
+} catch (error) {
 
   this.status.lastError =
-    `Identify 전송 실패: ${error.message}`;
+    "Identify 전송 실패: " +
+    error.message;
 
 }
 ```
@@ -1198,7 +1059,7 @@ try {
 /*
 
 * ==========================================================
-* 재연결
+* Discord 재연결
 * ==========================================================
   */
   closeAndReconnect() {
@@ -1233,7 +1094,6 @@ this.connected =
 this.identified =
   false;
 
-
 this.status.connected =
   false;
 
@@ -1260,23 +1120,20 @@ this.scheduleReconnect();
   ) {
 
 ```
-if (
+if (!message) {
 ```
 
 ```
-  !message
-) {
-
   return;
-
 }
 
 
 /*
- * 봇 자신의 메시지 무시
+ * 봇 메시지 무시
  */
 if (
-  message.author?.bot
+  message.author &&
+  message.author.bot
 ) {
 
   return;
@@ -1301,17 +1158,15 @@ const channelId =
  * 허용된 채널만 처리
  */
 if (
-
   channelId !==
-  String(devChannel) &&
-
+    String(devChannel) &&
   channelId !==
-  String(userChannel)
-
+    String(userChannel)
 ) {
 
   this.status.lastAction =
-    `Ignored channel: ${channelId}`;
+    "Ignored channel: " +
+    channelId;
 
   return;
 
@@ -1319,15 +1174,13 @@ if (
 
 
 const content =
-  message.content?.trim();
+  message.content
+    ? message.content.trim()
+    : "";
 
 
-if (
-  !content
-) {
-
+if (!content) {
   return;
-
 }
 
 
@@ -1338,7 +1191,7 @@ this.status.lastAction =
 try {
 
   /*
-   * Gemini 호출
+   * Gemini 요청
    */
   const answer =
     await this.askGemini(
@@ -1346,9 +1199,7 @@ try {
     );
 
 
-  if (
-    !answer
-  ) {
+  if (!answer) {
 
     throw new Error(
       "Gemini 응답이 비어 있습니다."
@@ -1370,30 +1221,28 @@ try {
     "AI response sent to Discord";
 
 
-} catch (
-  error
-) {
+} catch (error) {
 
   this.status.lastError =
-    `AI 처리 실패: ${error.message}`;
+    "AI 처리 실패: " +
+    error.message;
 
 
   try {
 
     await this.sendDiscordMessage(
-
       channelId,
-
-      `AI 처리 중 오류가 발생했습니다.\n\`${error.message}\``
-
+      "AI 처리 중 오류가 발생했습니다.\n" +
+      "`" +
+      error.message +
+      "`"
     );
 
-  } catch (
-    sendError
-  ) {
+  } catch (sendError) {
 
     this.status.lastError =
-      `Discord 오류 메시지 전송 실패: ${sendError.message}`;
+      "Discord 오류 메시지 전송 실패: " +
+      sendError.message;
 
   }
 
@@ -1420,9 +1269,7 @@ const apiKey =
   this.env.AI_coupang_api;
 
 
-if (
-  !apiKey
-) {
+if (!apiKey) {
 
   throw new Error(
     "AI_coupang_api 환경변수가 없습니다."
@@ -1432,14 +1279,14 @@ if (
 
 
 const endpoint =
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+  "https://generativelanguage.googleapis.com/v1beta/models/" +
+  GEMINI_MODEL +
+  ":generateContent";
 
 
 const response =
   await fetch(
-
     endpoint,
-
     {
 
       method:
@@ -1457,7 +1304,6 @@ const response =
 
       body:
         JSON.stringify(
-
           {
 
             contents: [
@@ -1482,7 +1328,6 @@ const response =
 
             ],
 
-
             generationConfig: {
 
               temperature:
@@ -1497,11 +1342,9 @@ const response =
             }
 
           }
-
         )
 
     }
-
   );
 
 
@@ -1514,7 +1357,10 @@ if (
 ) {
 
   throw new Error(
-    `Gemini API ${response.status}: ${text}`
+    "Gemini API " +
+    response.status +
+    ": " +
+    text
   );
 
 }
@@ -1539,21 +1385,50 @@ try {
 }
 
 
-const answer =
-  data
-    ?.candidates?.[0]
-    ?.content?.parts
-    ?.map(
-      part =>
-        part.text || ""
-    )
-    .join("")
-    .trim();
+const candidates =
+  data.candidates;
 
 
 if (
-  !answer
+  !candidates ||
+  !candidates[0] ||
+  !candidates[0].content ||
+  !candidates[0].content.parts
 ) {
+
+  throw new Error(
+    "Gemini가 답변을 반환하지 않았습니다."
+  );
+
+}
+
+
+let answer = "";
+
+
+for (
+  const part of
+  candidates[0].content.parts
+) {
+
+  if (
+    part &&
+    part.text
+  ) {
+
+    answer +=
+      part.text;
+
+  }
+
+}
+
+
+answer =
+  answer.trim();
+
+
+if (!answer) {
 
   throw new Error(
     "Gemini가 답변을 반환하지 않았습니다."
@@ -1586,9 +1461,7 @@ const token =
   this.env.AI_coupang_discord;
 
 
-if (
-  !token
-) {
+if (!token) {
 
   throw new Error(
     "AI_coupang_discord 환경변수가 없습니다."
@@ -1597,9 +1470,6 @@ if (
 }
 
 
-/*
- * Discord 메시지는 2000자 제한
- */
 const chunks =
   this.splitMessage(
     content,
@@ -1613,9 +1483,10 @@ for (
 
   const response =
     await fetch(
-
-      `${DISCORD_API}/channels/${channelId}/messages`,
-
+      DISCORD_API +
+      "/channels/" +
+      channelId +
+      "/messages",
       {
 
         method:
@@ -1624,7 +1495,8 @@ for (
         headers: {
 
           "Authorization":
-            `Bot ${token}`,
+            "Bot " +
+            token,
 
           "Content-Type":
             "application/json"
@@ -1640,7 +1512,6 @@ for (
           )
 
       }
-
     );
 
 
@@ -1653,7 +1524,10 @@ for (
 
 
     throw new Error(
-      `Discord API ${response.status}: ${errorText}`
+      "Discord API " +
+      response.status +
+      ": " +
+      errorText
     );
 
   }
@@ -1666,7 +1540,7 @@ for (
 /*
 
 * ==========================================================
-* Discord 메시지 분할
+* 긴 메시지 분할
 * ==========================================================
   */
   splitMessage(
@@ -1692,7 +1566,6 @@ if (
 
 const chunks =
   [];
-
 
 let remaining =
   text;
