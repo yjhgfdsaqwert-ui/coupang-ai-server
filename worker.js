@@ -4,8 +4,8 @@ const DISCORD_GATEWAY =
 const DISCORD_API =
   "https://discord.com/api/v10";
 
-const GEMINI_MODEL =
-  "gemini-3.1-flash-lite";
+const OPENROUTER_MODEL =
+  "openrouter/free";
 
 const INTENTS =
   (1 << 0) |
@@ -18,274 +18,6 @@ export default {
   async fetch(request, env) {
 
     const url = new URL(request.url);
-
-
-    /*
-     * ==========================================================
-     * /location
-     * ==========================================================
-     *
-     * Cloudflare 요청 위치와
-     * Worker에서 외부로 보이는 정보를 확인한다.
-     */
-    if (url.pathname === "/location") {
-
-      try {
-
-        /*
-         * Cloudflare request.cf 정보
-         */
-        const cf =
-          request.cf || {};
-
-
-        /*
-         * Cloudflare 외부 요청 확인
-         *
-         * cloudflare.com/cdn-cgi/trace에서
-         * Worker가 외부로 요청할 때 보이는
-         * IP / colo 등의 정보를 확인한다.
-         */
-        let trace = null;
-        let traceError = null;
-
-
-        try {
-
-          const traceResponse =
-            await fetch(
-              "https://www.cloudflare.com/cdn-cgi/trace",
-              {
-                method: "GET"
-              }
-            );
-
-
-          if (traceResponse.ok) {
-
-            const traceText =
-              await traceResponse.text();
-
-
-            trace = {};
-
-
-            const lines =
-              traceText.split("\n");
-
-
-            for (
-              const line of lines
-            ) {
-
-              const separator =
-                line.indexOf("=");
-
-
-              if (
-                separator === -1
-              ) {
-
-                continue;
-
-              }
-
-
-              const key =
-                line.slice(
-                  0,
-                  separator
-                ).trim();
-
-
-              const value =
-                line.slice(
-                  separator + 1
-                ).trim();
-
-
-              if (key) {
-
-                trace[key] =
-                  value;
-
-              }
-
-            }
-
-          } else {
-
-            traceError =
-              "Trace API HTTP " +
-              String(
-                traceResponse.status
-              );
-
-          }
-
-        } catch (error) {
-
-          traceError =
-            error &&
-            error.message
-              ? error.message
-              : String(error);
-
-        }
-
-
-        /*
-         * 결과
-         */
-        return new Response(
-          JSON.stringify(
-            {
-              worker: {
-                url:
-                  url.toString(),
-
-                method:
-                  request.method
-              },
-
-
-              cloudflare: {
-
-                country:
-                  cf.country || null,
-
-                city:
-                  cf.city || null,
-
-                region:
-                  cf.region || null,
-
-                regionCode:
-                  cf.regionCode || null,
-
-                continent:
-                  cf.continent || null,
-
-                timezone:
-                  cf.timezone || null,
-
-                colo:
-                  cf.colo || null,
-
-                latitude:
-                  cf.latitude || null,
-
-                longitude:
-                  cf.longitude || null
-
-              },
-
-
-              outbound: {
-
-                ip:
-                  trace &&
-                  trace.ip
-                    ? trace.ip
-                    : null,
-
-                country:
-                  trace &&
-                  trace.loc
-                    ? trace.loc
-                    : null,
-
-                colo:
-                  trace &&
-                  trace.colo
-                    ? trace.colo
-                    : null,
-
-                httpProtocol:
-                  trace &&
-                  trace.http
-                    ? trace.http
-                    : null,
-
-                tls:
-                  trace &&
-                  trace.tls
-                    ? trace.tls
-                    : null,
-
-                error:
-                  traceError
-
-              },
-
-
-              /*
-               * Google Gemini API 지원 지역과
-               * 비교할 때 참고하기 위한 표시
-               *
-               * South Korea = KR
-               */
-              gemini_region_check: {
-
-                cloudflare_country:
-                  cf.country || null,
-
-                outbound_country:
-                  trace &&
-                  trace.loc
-                    ? trace.loc
-                    : null,
-
-                south_korea_supported:
-                  true,
-
-                note:
-                  "Gemini API의 실제 허용 여부는 Google 측의 API 요청 위치 판정에 따라 결정됩니다."
-
-              }
-
-            },
-            null,
-            2
-          ),
-          {
-            status: 200,
-
-            headers: {
-              "Content-Type":
-                "application/json; charset=UTF-8"
-            }
-          }
-        );
-
-
-      } catch (error) {
-
-        return new Response(
-          JSON.stringify(
-            {
-              error:
-                error &&
-                error.message
-                  ? error.message
-                  : String(error)
-            },
-            null,
-            2
-          ),
-          {
-            status: 500,
-
-            headers: {
-              "Content-Type":
-                "application/json; charset=UTF-8"
-            }
-          }
-        );
-
-      }
-
-    }
 
 
     /*
@@ -1559,10 +1291,10 @@ export class DiscordBot {
     try {
 
       /*
-       * Gemini 요청
+       * OpenRouter 요청
        */
       const answer =
-        await this.askGemini(
+        await this.askOpenRouter(
           content
         );
 
@@ -1570,7 +1302,7 @@ export class DiscordBot {
       if (!answer) {
 
         throw new Error(
-          "Gemini 응답이 비어 있습니다."
+          "OpenRouter 응답이 비어 있습니다."
         );
 
       }
@@ -1635,10 +1367,10 @@ export class DiscordBot {
 
   /*
    * ==========================================================
-   * Gemini API
+   * OpenRouter API
    * ==========================================================
    */
-  async askGemini(
+  async askOpenRouter(
     userMessage
   ) {
 
@@ -1656,9 +1388,7 @@ export class DiscordBot {
 
 
     const endpoint =
-      "https://generativelanguage.googleapis.com/v1beta/models/" +
-      GEMINI_MODEL +
-      ":generateContent";
+      "https://openrouter.ai/api/v1/chat/completions";
 
 
     const response =
@@ -1674,8 +1404,15 @@ export class DiscordBot {
             "Content-Type":
               "application/json",
 
-            "x-goog-api-key":
-              apiKey
+            "Authorization":
+              "Bearer " +
+              apiKey,
+
+            "HTTP-Referer":
+              "https://coupang-ai-server.yjh20130103.workers.dev",
+
+            "X-Title":
+              "Coupang AI Discord Bot"
 
           },
 
@@ -1683,41 +1420,32 @@ export class DiscordBot {
             JSON.stringify(
               {
 
-                contents: [
+                model:
+                  OPENROUTER_MODEL,
+
+                messages: [
 
                   {
 
                     role:
                       "user",
 
-                    parts: [
-
-                      {
-
-                        text:
-                          userMessage
-
-                      }
-
-                    ]
+                    content:
+                      userMessage
 
                   }
 
                 ],
 
 
-                generationConfig: {
+                temperature:
+                  0.7,
 
-                  temperature:
-                    0.7,
+                top_p:
+                  0.9,
 
-                  topP:
-                    0.9,
-
-                  maxOutputTokens:
-                    2048
-
-                }
+                max_tokens:
+                  2048
 
               }
             )
@@ -1735,7 +1463,7 @@ export class DiscordBot {
     ) {
 
       throw new Error(
-        "Gemini API " +
+        "OpenRouter API " +
         String(response.status) +
         ": " +
         text
@@ -1757,60 +1485,77 @@ export class DiscordBot {
     } catch {
 
       throw new Error(
-        "Gemini 응답 JSON 파싱 실패"
+        "OpenRouter 응답 JSON 파싱 실패"
       );
 
     }
 
 
-    const candidates =
-      data.candidates;
-
-
     if (
-      !candidates ||
-      !candidates[0] ||
-      !candidates[0].content ||
-      !candidates[0].content.parts
+      !data ||
+      !data.choices ||
+      !data.choices[0] ||
+      !data.choices[0].message
     ) {
 
       throw new Error(
-        "Gemini가 답변을 반환하지 않았습니다."
+        "OpenRouter가 답변을 반환하지 않았습니다."
       );
 
     }
 
 
     let answer =
-      "";
+      data.choices[0].message.content;
 
 
-    for (
-      const part of
-      candidates[0].content.parts
+    if (
+      Array.isArray(answer)
     ) {
 
-      if (
-        part &&
-        part.text
-      ) {
+      answer =
+        answer
+          .map(
+            part => {
 
-        answer +=
-          part.text;
+              if (
+                typeof part ===
+                "string"
+              ) {
 
-      }
+                return part;
+
+              }
+
+              if (
+                part &&
+                part.text
+              ) {
+
+                return part.text;
+
+              }
+
+              return "";
+
+            }
+          )
+          .join("");
 
     }
 
 
     answer =
-      answer.trim();
+      typeof answer ===
+        "string"
+        ? answer.trim()
+        : "";
 
 
     if (!answer) {
 
       throw new Error(
-        "Gemini가 답변을 반환하지 않았습니다."
+        "OpenRouter가 답변을 반환하지 않았습니다."
       );
 
     }
