@@ -1,3 +1,4 @@
+```js
 const DISCORD_GATEWAY =
   "wss://gateway.discord.gg/?v=10&encoding=json";
 
@@ -21,7 +22,277 @@ export default {
 
 
     /*
+     * ==========================================================
+     * /location
+     * ==========================================================
+     *
+     * Cloudflare 요청 위치와
+     * Worker에서 외부로 보이는 정보를 확인한다.
+     */
+    if (url.pathname === "/location") {
+
+      try {
+
+        /*
+         * Cloudflare request.cf 정보
+         */
+        const cf =
+          request.cf || {};
+
+
+        /*
+         * Cloudflare 외부 요청 확인
+         *
+         * cloudflare.com/cdn-cgi/trace에서
+         * Worker가 외부로 요청할 때 보이는
+         * IP / colo 등의 정보를 확인한다.
+         */
+        let trace = null;
+        let traceError = null;
+
+
+        try {
+
+          const traceResponse =
+            await fetch(
+              "https://www.cloudflare.com/cdn-cgi/trace",
+              {
+                method: "GET"
+              }
+            );
+
+
+          if (traceResponse.ok) {
+
+            const traceText =
+              await traceResponse.text();
+
+
+            trace = {};
+
+
+            const lines =
+              traceText.split("\n");
+
+
+            for (
+              const line of lines
+            ) {
+
+              const separator =
+                line.indexOf("=");
+
+
+              if (
+                separator === -1
+              ) {
+
+                continue;
+
+              }
+
+
+              const key =
+                line.slice(
+                  0,
+                  separator
+                ).trim();
+
+
+              const value =
+                line.slice(
+                  separator + 1
+                ).trim();
+
+
+              if (key) {
+
+                trace[key] =
+                  value;
+
+              }
+
+            }
+
+          } else {
+
+            traceError =
+              "Trace API HTTP " +
+              String(
+                traceResponse.status
+              );
+
+          }
+
+        } catch (error) {
+
+          traceError =
+            error &&
+            error.message
+              ? error.message
+              : String(error);
+
+        }
+
+
+        /*
+         * 결과
+         */
+        return new Response(
+          JSON.stringify(
+            {
+              worker: {
+                url:
+                  url.toString(),
+
+                method:
+                  request.method
+              },
+
+
+              cloudflare: {
+
+                country:
+                  cf.country || null,
+
+                city:
+                  cf.city || null,
+
+                region:
+                  cf.region || null,
+
+                regionCode:
+                  cf.regionCode || null,
+
+                continent:
+                  cf.continent || null,
+
+                timezone:
+                  cf.timezone || null,
+
+                colo:
+                  cf.colo || null,
+
+                latitude:
+                  cf.latitude || null,
+
+                longitude:
+                  cf.longitude || null
+
+              },
+
+
+              outbound: {
+
+                ip:
+                  trace &&
+                  trace.ip
+                    ? trace.ip
+                    : null,
+
+                country:
+                  trace &&
+                  trace.loc
+                    ? trace.loc
+                    : null,
+
+                colo:
+                  trace &&
+                  trace.colo
+                    ? trace.colo
+                    : null,
+
+                httpProtocol:
+                  trace &&
+                  trace.http
+                    ? trace.http
+                    : null,
+
+                tls:
+                  trace &&
+                  trace.tls
+                    ? trace.tls
+                    : null,
+
+                error:
+                  traceError
+
+              },
+
+
+              /*
+               * Google Gemini API 지원 지역과
+               * 비교할 때 참고하기 위한 표시
+               *
+               * South Korea = KR
+               */
+              gemini_region_check: {
+
+                cloudflare_country:
+                  cf.country || null,
+
+                outbound_country:
+                  trace &&
+                  trace.loc
+                    ? trace.loc
+                    : null,
+
+                south_korea_supported:
+                  true,
+
+                note:
+                  "Gemini API의 실제 허용 여부는 Google 측의 API 요청 위치 판정에 따라 결정됩니다."
+
+              }
+
+            },
+            null,
+            2
+          ),
+          {
+            status: 200,
+
+            headers: {
+              "Content-Type":
+                "application/json; charset=UTF-8"
+            }
+          }
+        );
+
+
+      } catch (error) {
+
+        return new Response(
+          JSON.stringify(
+            {
+              error:
+                error &&
+                error.message
+                  ? error.message
+                  : String(error)
+            },
+            null,
+            2
+          ),
+          {
+            status: 500,
+
+            headers: {
+              "Content-Type":
+                "application/json; charset=UTF-8"
+            }
+          }
+        );
+
+      }
+
+    }
+
+
+    /*
+     * ==========================================================
      * /status
+     * ==========================================================
      *
      * 상태 확인과 동시에
      * Discord 연결을 시도한다.
@@ -87,7 +358,9 @@ export default {
 
 
     /*
+     * ==========================================================
      * 기본 페이지
+     * ==========================================================
      */
     return new Response(
       "Coupang AI Discord Bot Server",
@@ -1739,3 +2012,4 @@ export class DiscordBot {
   }
 
 }
+```
