@@ -1445,7 +1445,7 @@ export class DiscordBot {
                   0.9,
 
                 max_tokens:
-                  100
+                  1000
 
               }
             )
