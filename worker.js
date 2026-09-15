@@ -5,7 +5,7 @@ const DISCORD_API =
   "https://discord.com/api/v10";
 
 const OPENROUTER_MODEL =
-  "openai/gpt-oss-20b:free";
+  "openrouter/free";
 
 const INTENTS =
   (1 << 0) |
@@ -1445,7 +1445,7 @@ export class DiscordBot {
                   0.9,
 
                 max_tokens:
-                  2048
+                  1
 
               }
             )
