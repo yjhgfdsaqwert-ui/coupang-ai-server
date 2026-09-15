@@ -5,7 +5,7 @@ const DISCORD_API =
   "https://discord.com/api/v10";
 
 const OPENROUTER_MODEL =
-  "openrouter/free";
+  "openai/gpt-oss-20b:free";
 
 const INTENTS =
   (1 << 0) |
